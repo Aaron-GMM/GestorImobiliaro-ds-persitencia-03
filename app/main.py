@@ -1,11 +1,11 @@
 from fastapi import FastAPI
 from app.database.database import init_db
 from contextlib import asynccontextmanager
-from app.api import proprietario, imovel# Certifique-se de importar suas rotas
+from app.api import proprietario, imovel, inquilino, contrato
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Conecta ao banco ao iniciar a API
+    """Gerencia o ciclo de vida da aplicação, conectando ao banco ao iniciar."""
     await init_db()
     yield
 
@@ -15,6 +15,8 @@ app = FastAPI(
     description="API para o Trabalho Prático de Persistência - MongoDB"
 )
 
-# Incluindo as rotas que você criou no Ponto 1
+# Incluindo as rotas
 app.include_router(proprietario.router)
 app.include_router(imovel.router)
+app.include_router(inquilino.router)
+app.include_router(contrato.router)
