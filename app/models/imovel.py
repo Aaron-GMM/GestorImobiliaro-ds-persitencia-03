@@ -20,7 +20,7 @@ class ImovelUpdate(BaseModel):
     tipo_imovel: str | None= None
     status: str | None = None
 
-# --- 2. Document (Como é salvo no MongoDB) ---
+
 
 class Imovel(Document):
     apelido_imovel: str
@@ -29,7 +29,7 @@ class Imovel(Document):
     valor_aluguel_base: float
     tipo_imovel: str
     status: str
-    proprietario: Link[Proprietario] # Referência real ao documento
+    proprietario: Link[Proprietario]
 
     class Settings:
         name = "imoveis"

@@ -1,0 +1,54 @@
+# 🏢 Gestor Imobiliário - API NoSQL (MongoDB)
+
+Este projeto é a evolução do sistema de gestão imobiliária, migrado de SQL para um banco de dados orientado a documentos (**MongoDB**), utilizando **FastAPI** e **Beanie** (ODM assíncrono), gerenciado pelo **uv**.
+
+> **Nota Acadêmica:** O arquivo `.env` foi incluído no repositório intencionalmente para facilitar a execução e correção do trabalho, conforme solicitado.
+
+---
+
+## 🚀 Tecnologias Utilizadas
+
+* **Linguagem:** Python 3.12+
+* **Framework Web:** FastAPI
+* **Banco de Dados:** MongoDB (via Docker)
+* **ODM:** Beanie (Motor/Asyncio)
+* **Gerenciador:** uv
+* **Infraestrutura:** Docker & Docker Compose
+
+---
+
+## 📋 Pré-requisitos
+
+Para rodar este projeto, você precisa apenas de:
+
+1.  **Docker Desktop** (para o banco de dados).
+2.  **uv** (para o Python).
+    * *Instalação:* `pip install uv`
+
+---
+
+## ⚙️ Como Rodar (Passo a Passo)
+
+### 1. Subir o Banco de Dados
+O projeto já conta com um arquivo `docker-compose.yaml` configurado para criar o banco com as credenciais que estão no `.env`.
+
+Abra o terminal na pasta do projeto e execute:
+
+```bash
+# Sobe o MongoDB com usuário e senha pré-configurados
+docker-compose up -d
+```
+2. Instalar Dependências
+
+O uv lerá o arquivo pyproject.toml e instalará tudo automaticamente em um ambiente virtual isolado.
+Bash
+```bash
+uv sync
+```
+3. Iniciar a API
+
+Com o banco rodando e as dependências instaladas, suba o servidor:
+```bash
+uv run uvicorn app.main:app --reload
+```
+Acesse a documentação automática para testar: 👉 http://localhost:8000/docs
