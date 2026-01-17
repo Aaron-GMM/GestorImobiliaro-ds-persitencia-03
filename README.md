@@ -52,3 +52,33 @@ Com o banco rodando e as dependências instaladas, suba o servidor:
 uv run uvicorn app.main:app --reload
 ```
 Acesse a documentação automática para testar: 👉 http://localhost:8000/docs
+
+---
+
+## 🌱 Popular o Banco de Dados
+
+O projeto inclui um script para popular automaticamente o banco com dados realistas usando a biblioteca **Faker**.
+
+### Executando o Script
+
+Com o MongoDB rodando (via Docker), execute:
+
+```bash
+uv run python populate_db.py
+```
+
+### O que o script faz?
+
+O script `populate_db.py` irá **adicionar novos dados** ao banco (sem apagar os existentes):
+
+- 📋 **12 Proprietários** - com nome, CPF, email e telefone brasileiros
+- 🏠 **15 Imóveis** - casas, apartamentos, kitnets, salas comerciais e galpões
+- 👥 **15 Inquilinos** - com dados pessoais e renda mensal
+- 📝 **12 Contratos** - mistura de contratos ativos e encerrados
+
+### Regras de Negócio Aplicadas
+
+- Imóveis com contratos **ativos** ficam com status `"Alugado"`
+- Imóveis sem contrato ativo ficam com status `"Disponivel"`
+- Contratos encerrados são gerados com datas no passado
+- Valores de aluguel são baseados no tipo de imóvel

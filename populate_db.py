@@ -236,10 +236,7 @@ async def main():
     
     await init_database()
     
-    # Limpar dados existentes
-    await limpar_banco()
-    
-    # Criar dados
+    # Criar dados (sem limpar os existentes)
     proprietarios = await criar_proprietarios(12)
     imoveis = await criar_imoveis(proprietarios, 15)
     inquilinos = await criar_inquilinos(15)
@@ -248,6 +245,10 @@ async def main():
     print("=" * 50)
     print("Banco de dados populado com sucesso!")
     print(f"   - {len(proprietarios)} proprietários")
+    print(f"   - {len(imoveis)} imóveis")
+    print(f"   - {len(inquilinos)} inquilinos")
+    print(f"   - {len(contratos)} contratos")
+    print("=" * 50)
     print(f"   - {len(imoveis)} imóveis")
     print(f"   - {len(inquilinos)} inquilinos")
     print(f"   - {len(contratos)} contratos")
