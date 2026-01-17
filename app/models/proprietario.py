@@ -15,7 +15,6 @@ class ProprietarioUpdate(BaseModel):
     telefone: str | None = None
     endereco: str | None = None
 
-# --- Document ---
 class Proprietario(Document):
     nome: str
     cpf: str
