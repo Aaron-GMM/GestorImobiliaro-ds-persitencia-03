@@ -1,0 +1,51 @@
+DIVISÃO DE TAREFAS - TRABALHO PRÁTICO 3 (Persistência NoSQL)
+
+-------------------------------------------------------------------------------
+MEMBRO 1: Aaron Gibran
+Foco: Infraestrutura, Modelagem Base e Documentação
+-------------------------------------------------------------------------------
+1. Configuração do Ambiente:
+   - Inicialização do projeto com UV e configuração do FastAPI.
+   - Configuração da conexão assíncrona com MongoDB (Motor/Beanie).
+
+2. Módulo de Proprietários e Imóveis:
+   - Implementação dos modelos (Documents) 'Proprietario' e 'Imovel'.
+   - Desenvolvimento dos endpoints CRUD completos para estas entidades.
+   - Implementação do relacionamento (Link) entre Proprietário e Imóvel.
+
+3. Documentação:
+   - Criação do diagrama de classes no README utilizando Mermaid.
+   - Documentação dos endpoints via Docstrings e revisão do Swagger.
+
+-------------------------------------------------------------------------------
+MEMBRO 2: Luis Henrique
+Foco: Regras de Negócio, Contratos e Massa de Dados
+-------------------------------------------------------------------------------
+1. Módulo de Inquilinos e Contratos:
+   - Implementação dos modelos 'Inquilino' e 'Contrato'.
+   - Desenvolvimento do CRUD de Inquilinos.
+   - Lógica de negócio para criação de Contratos (validação de disponibilidade).
+
+2. Script de População (populate_db.py):
+   - Desenvolvimento do script para gerar massa de dados realista.
+   - Configuração do Faker para gerar +10 documentos por coleção automaticamente.
+   - Garantia de consistência nos relacionamentos (IDs válidos) ao popular.
+
+3. Validações e Tratamento de Erros:
+   - Padronização das respostas de erro (HTTP 404/400) em todas as rotas.
+
+-------------------------------------------------------------------------------
+MEMBRO 3: Paulo Gleidson
+Foco: Consultas Complexas, Dashboards e Performance
+-------------------------------------------------------------------------------
+1. Consultas Avançadas e Filtros:
+   - Implementação da busca textual (Case-insensitive) para Imóveis.
+   - Implementação do filtro de Contratos por data de vencimento (MongoDB Operators).
+   - Implementação de ordenação dinâmica e paginação nas listagens.
+
+2. Agregações e Dashboards:
+   - Desenvolvimento do Pipeline de Agregação para estatísticas (soma de receitas, contagem por tipo).
+   - Criação do endpoint 'Dashboard Completo' cruzando 3 coleções (Proprietário -> Imóvel -> Contrato).
+
+3. Otimização:
+   - Refinamento das queries usando 'fetch_links' para otimizar o carregamento de dados relacionados.
