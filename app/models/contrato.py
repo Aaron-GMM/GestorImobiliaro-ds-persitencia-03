@@ -12,6 +12,7 @@ class ContratoCreate(BaseModel):
     data_inicio: date
     data_fim: date
     valor_aluguel: float = Field(gt=0)
+    dia_vencimento: int = Field(ge=1, le=31)
 
 
 class ContratoUpdate(BaseModel):
@@ -20,6 +21,7 @@ class ContratoUpdate(BaseModel):
     data_fim: date | None = None
     valor_aluguel: float | None = None
     status: str | None = None
+    dia_vencimento: int | None = None
 
 
 class Contrato(Document):
@@ -32,6 +34,7 @@ class Contrato(Document):
     data_inicio: date
     data_fim: date
     valor_aluguel: float = Field(gt=0)
+    dia_vencimento: int = Field(ge=1, le=31)
     status: str = "Ativo"  # Ativo, Encerrado, Cancelado
 
     class Settings:
