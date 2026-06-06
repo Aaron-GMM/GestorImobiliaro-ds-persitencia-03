@@ -2,6 +2,7 @@
 Rotas da API para gerenciamento de Contratos.
 Implementa a relação Muitos-para-Muitos entre Inquilino e Imóvel.
 """
+from datetime import date, timedelta
 from beanie import PydanticObjectId
 from fastapi import APIRouter, HTTPException, Query
 from app.models.contrato import Contrato, ContratoCreate, ContratoUpdate
@@ -273,3 +274,63 @@ async def encerrar_contrato(id: str):
     # Encerrar contrato
     await contrato.set({"status": "Encerrado"})
     return contrato
+
+
+@router.get("/metrics/geral")
+async def obter_metricas_gerais():
+    """
+    Retorna métricas gerais de contratos e imóveis.
+    
+    Métricas:
+    - imoveis_em_vigencia: Número de imóveis com contratos ativos e não vencidos
+    - imoveis_vencendo_30_dias: Número de imóveis com contratos vencendo nos próximos 30 dias
+    - imoveis_disponiveis: Número de imóveis disponíveis para locação
+    
+    Returns:
+        Dicionário com as métricas solicitadas.
+    """
+    hoje = date.today()
+    daqui_30_dias = hoje + timedelta(days=30)
+    
+    # Pipeline otimizado para contar contratos ativos não vencidos
+    pipeline_vigencia = [
+        {"$match": {
+            "status": "Ativo",
+            "data_fim": {"$gte": hoje}
+        }},
+        {"$count": "total"}
+    ]
+    
+    # Pipeline otimizado para contar contratos vencendo em 30 dias
+    pipeline_vencendo = [
+        {"$match": {
+            "status": "Ativo",
+            "data_fim": {"$gte": hoje, "$lte": daqui_30_dias}
+        }},
+        {"$count": "total"}
+    ]
+    
+    # Pipeline otimizado para contar imóveis disponíveis
+    pipeline_disponiveis = [
+        {"$match": {"status": "Disponivel"}},
+        {"$count": "total"}
+    ]
+    
+    try:
+        resultado_vigencia = await Contrato.aggregate(pipeline_vigencia).to_list()
+        resultado_vencendo = await Contrato.aggregate(pipeline_vencendo).to_list()
+        resultado_disponiveis = await Imovel.aggregate(pipeline_disponiveis).to_list()
+        
+        imoveis_em_vigencia = resultado_vigencia[0]["total"] if resultado_vigencia else 0
+        imoveis_vencendo_30_dias = resultado_vencendo[0]["total"] if resultado_vencendo else 0
+        imoveis_disponiveis = resultado_disponiveis[0]["total"] if resultado_disponiveis else 0
+    except Exception:
+        imoveis_em_vigencia = 0
+        imoveis_vencendo_30_dias = 0
+        imoveis_disponiveis = 0
+    
+    return {
+        "imoveis_em_vigencia": imoveis_em_vigencia,
+        "imoveis_vencendo_30_dias": imoveis_vencendo_30_dias,
+        "imoveis_disponiveis": imoveis_disponiveis
+    }
