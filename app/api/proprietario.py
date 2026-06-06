@@ -1,9 +1,20 @@
 from beanie import PydanticObjectId
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 from app.models.proprietario import Proprietario, ProprietarioCreate, ProprietarioUpdate
 
 router = APIRouter(prefix="/proprietarios", tags=["Proprietários"])
 
+class LoginRequest(BaseModel):
+    email: str
+    senha: str
+
+@router.post("/login")
+async def login_proprietario(dados: LoginRequest):
+    prop = await Proprietario.find_one({"email": dados.email, "senha": dados.senha})
+    if not prop:
+        raise HTTPException(status_code=401, detail="Credenciais inválidas")
+    return {"message": "Login realizado com sucesso", "id": str(prop.id), "nome": prop.nome, "email": prop.email}
 
 @router.post("/", response_model=Proprietario)
 async def criar_proprietario(dados: ProprietarioCreate):
