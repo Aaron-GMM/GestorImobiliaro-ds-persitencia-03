@@ -5,6 +5,12 @@ from .inquilino import Inquilino
 from .imovel import Imovel
 
 
+class ContratoMetrics(BaseModel):
+    """Métricas de contratos."""
+    contratos_ativos: int
+    contratos_vencendo: int
+    imoveis_disponiveis: int
+
 class ContratoCreate(BaseModel):
     """Schema para criação de contrato."""
     id_inquilino: str = Field(description="ID do inquilino")
