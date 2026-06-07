@@ -335,9 +335,9 @@ async def obter_metricas_gerais():
     Retorna métricas gerais de contratos e imóveis.
     
     Métricas:
-    - imoveis_em_vigencia: Número de imóveis com contratos ativos e não vencidos
-    - imoveis_vencendo_30_dias: Número de imóveis com contratos vencendo nos próximos 30 dias
-    - imoveis_disponiveis: Número de imóveis disponíveis para locação
+    - contrato_ativo: Número de contratos ativos e não vencidos
+    - contrato_vencendo: Número de contratos vencendo nos próximos 30 dias
+    - imovel_disponivel: Número de imóveis disponíveis para locação
     
     Returns:
         Dicionário com as métricas solicitadas.
