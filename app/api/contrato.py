@@ -276,7 +276,7 @@ async def encerrar_contrato(id: str):
     return contrato
 
 
-@router.get("/metrics/geral")
+@router.get("/metrics/geral", response_model=ContratoMetrics)
 async def obter_metricas_gerais():
     """
     Retorna métricas gerais de contratos e imóveis.
@@ -316,21 +316,20 @@ async def obter_metricas_gerais():
         {"$count": "total"}
     ]
     
+    response = ContratoMetrics(
+        contratos_ativos=0,
+        contratos_vencendo=0,
+        imoveis_disponiveis=0
+    )
     try:
         resultado_vigencia = await Contrato.aggregate(pipeline_vigencia).to_list()
         resultado_vencendo = await Contrato.aggregate(pipeline_vencendo).to_list()
         resultado_disponiveis = await Imovel.aggregate(pipeline_disponiveis).to_list()
         
-        imoveis_em_vigencia = resultado_vigencia[0]["total"] if resultado_vigencia else 0
-        imoveis_vencendo_30_dias = resultado_vencendo[0]["total"] if resultado_vencendo else 0
-        imoveis_disponiveis = resultado_disponiveis[0]["total"] if resultado_disponiveis else 0
+        response.contratos_ativos = resultado_vigencia[0]["total"] if resultado_vigencia else 0
+        response.contratos_vencendo = resultado_vencendo[0]["total"] if resultado_vencendo else 0
+        response.imoveis_disponiveis = resultado_disponiveis[0]["total"] if resultado_disponiveis else 0
     except Exception:
-        imoveis_em_vigencia = 0
-        imoveis_vencendo_30_dias = 0
-        imoveis_disponiveis = 0
+        pass
     
-    return {
-        "imoveis_em_vigencia": imoveis_em_vigencia,
-        "imoveis_vencendo_30_dias": imoveis_vencendo_30_dias,
-        "imoveis_disponiveis": imoveis_disponiveis
-    }
+    return response
