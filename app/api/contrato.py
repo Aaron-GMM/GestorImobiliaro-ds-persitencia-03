@@ -290,13 +290,11 @@ async def obter_metricas_gerais():
         Dicionário com as métricas solicitadas.
     """
     hoje = date.today()
-    daqui_30_dias = hoje + timedelta(days=30)
-    
-    # Pipeline otimizado para contar contratos ativos não vencidos
+    vencendo = (hoje + timedelta(days=30)).strftime("%Y-%m-%d")
+        
     pipeline_vigencia = [
         {"$match": {
-            "status": "Ativo",
-            "data_fim": {"$gte": hoje}
+            "status": "Ativo"
         }},
         {"$count": "total"}
     ]
@@ -305,12 +303,11 @@ async def obter_metricas_gerais():
     pipeline_vencendo = [
         {"$match": {
             "status": "Ativo",
-            "data_fim": {"$gte": hoje, "$lte": daqui_30_dias}
+            "data_fim": {"$lte": vencendo}
         }},
         {"$count": "total"}
     ]
-    
-    # Pipeline otimizado para contar imóveis disponíveis
+ 
     pipeline_disponiveis = [
         {"$match": {"status": "Disponivel"}},
         {"$count": "total"}
@@ -321,15 +318,27 @@ async def obter_metricas_gerais():
         contratos_vencendo=0,
         imoveis_disponiveis=0
     )
-    try:
-        resultado_vigencia = await Contrato.aggregate(pipeline_vigencia).to_list()
-        resultado_vencendo = await Contrato.aggregate(pipeline_vencendo).to_list()
-        resultado_disponiveis = await Imovel.aggregate(pipeline_disponiveis).to_list()
-        
-        response.contratos_ativos = resultado_vigencia[0]["total"] if resultado_vigencia else 0
-        response.contratos_vencendo = resultado_vencendo[0]["total"] if resultado_vencendo else 0
-        response.imoveis_disponiveis = resultado_disponiveis[0]["total"] if resultado_disponiveis else 0
-    except Exception:
-        pass
     
+    try:
+        try:
+            resultado_vigencia = await Contrato.aggregate(pipeline_vigencia).to_list()
+            response.contratos_ativos = resultado_vigencia[0]["total"] if resultado_vigencia else 0
+        except Exception as e:
+            print(f"Erro ao buscar contratos ativos: {e}")
+        
+        try:
+            resultado_vencendo = await Contrato.aggregate(pipeline_vencendo).to_list()
+            response.contratos_vencendo = resultado_vencendo[0]["total"] if resultado_vencendo else 0
+        except Exception as e:
+            print(f"Erro ao buscar contratos vencendo: {e}")
+        
+        try:
+            resultado_disponiveis = await Imovel.aggregate(pipeline_disponiveis).to_list()
+            response.imoveis_disponiveis = resultado_disponiveis[0]["total"] if resultado_disponiveis else 0
+        except Exception as e:
+            print(f"Erro ao buscar imóveis disponíveis: {e}")
+            
+    except Exception as e:
+        print(f"Erro geral ao buscar métricas: {e}")
+
     return response
