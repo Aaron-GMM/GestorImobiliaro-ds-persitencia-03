@@ -5,11 +5,57 @@ Implementa a relação Muitos-para-Muitos entre Inquilino e Imóvel.
 from datetime import date, timedelta
 from beanie import PydanticObjectId
 from fastapi import APIRouter, HTTPException, Query
-from app.models.contrato import Contrato, ContratoCreate, ContratoUpdate
+from app.models.contrato import Contrato, ContratoCreate, ContratoMetrics, ContratoUpdate
 from app.models.inquilino import Inquilino
 from app.models.imovel import Imovel
+from app.models.pagamento import Pagamento
 
 router = APIRouter(prefix="/contratos", tags=["Contratos"])
+
+
+async def _gerar_pagamentos_contrato(contrato: Contrato):
+    """
+    Gera automaticamente todos os pagamentos mensais de um contrato.
+    
+    Args:
+        contrato: Contrato criado.
+    """
+    # Calcular número de meses entre as datas
+    inicio = contrato.data_inicio
+    fim = contrato.data_fim
+    
+    # Calcular diferença em meses
+    diff_months = (fim.year - inicio.year) * 12 + (fim.month - inicio.month) + 1
+    
+    # Gerar pagamentos para cada mês
+    pagamentos = []
+    for i in range(diff_months):
+        # Calcular data de vencimento para este mês
+        data_vencimento = date(
+            inicio.year + (inicio.month + i - 1) // 12,
+            (inicio.month + i - 1) % 12 + 1,
+            contrato.dia_vencimento
+        )
+        
+        # Formatar número da parcela
+        numero_parcela = f"{i + 1:02d}/{diff_months:02d}"
+        
+        # Criar pagamento
+        pagamento = Pagamento(
+            contrato=contrato,
+            numero_parcela=numero_parcela,
+            data_vencimento=data_vencimento,
+            valor_original=contrato.valor_aluguel,
+            multa=0.0,
+            juros=0.0,
+            valor_total=contrato.valor_aluguel,
+            status="Pendente"
+        )
+        pagamentos.append(pagamento)
+    
+    # Inserir todos os pagamentos em lote
+    if pagamentos:
+        await Pagamento.insert_many(pagamentos)
 
 
 @router.post("/", response_model=Contrato)
@@ -70,13 +116,20 @@ async def criar_contrato(dados: ContratoCreate):
         data_inicio=dados.data_inicio,
         data_fim=dados.data_fim,
         valor_aluguel=dados.valor_aluguel,
+        dia_vencimento=dados.dia_vencimento,
         status="Ativo"
     )
+    
+    # Inserir contrato
+    contrato_inserido = await novo_contrato.insert()
     
     # Atualizar status do imóvel para "Alugado"
     await imovel.set({"status": "Alugado"})
     
-    return await novo_contrato.insert()
+    # Gerar pagamentos mensais automaticamente
+    await _gerar_pagamentos_contrato(contrato_inserido)
+    
+    return contrato_inserido
 
 
 @router.get("/", response_model=list[Contrato])
@@ -299,7 +352,6 @@ async def obter_metricas_gerais():
         {"$count": "total"}
     ]
     
-    # Pipeline otimizado para contar contratos vencendo em 30 dias
     pipeline_vencendo = [
         {"$match": {
             "status": "Ativo",
