@@ -125,7 +125,7 @@ async def criar_imoveis(proprietarios: list[Proprietario], quantidade: int = 15)
     return imoveis
 
 
-async def criar_inquilinos(quantidade: int = 15) -> list[Inquilino]:
+async def criar_inquilinos(proprietarios: list[Proprietario], quantidade: int = 15) -> list[Inquilino]:
     """
     Cria inquilinos com dados realistas brasileiros.
     
@@ -143,7 +143,8 @@ async def criar_inquilinos(quantidade: int = 15) -> list[Inquilino]:
             cpf=fake.cpf(),
             email=fake.email(),
             telefone=fake.cellphone_number(),
-            renda_mensal=round(random.uniform(2000, 15000), 2)
+            renda_mensal=round(random.uniform(2000, 15000), 2),
+            proprietario=random.choice(proprietarios)
         )
         await inquilino.insert()
         inquilinos.append(inquilino)
@@ -239,7 +240,7 @@ async def main():
     # Criar dados (sem limpar os existentes)
     proprietarios = await criar_proprietarios(12)
     imoveis = await criar_imoveis(proprietarios, 15)
-    inquilinos = await criar_inquilinos(15)
+    inquilinos = await criar_inquilinos(proprietarios, 15)
     contratos = await criar_contratos(inquilinos, imoveis, 12)
     
     print("=" * 50)
