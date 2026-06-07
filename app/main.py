@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from app.database.database import init_db
 from contextlib import asynccontextmanager
-from app.api import proprietario, imovel, inquilino, contrato, dashboard, consultas
+from app.api import proprietario, imovel, inquilino, contrato, dashboard, consultas, pagamento
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -19,5 +19,6 @@ app.include_router(proprietario.router)
 app.include_router(imovel.router)
 app.include_router(inquilino.router)
 app.include_router(contrato.router)
+app.include_router(pagamento.router)
 app.include_router(dashboard.router)
 app.include_router(consultas.router)

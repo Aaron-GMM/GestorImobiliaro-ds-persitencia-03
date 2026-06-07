@@ -5,6 +5,7 @@ from app.models.proprietario import Proprietario
 from app.models.imovel import Imovel
 from app.models.inquilino import Inquilino
 from app.models.contrato import Contrato
+from app.models.pagamento import Pagamento
 
 
 async def init_db():
@@ -12,7 +13,7 @@ async def init_db():
         client = AsyncIOMotorClient(settings.MONGODB_URL)
         await init_beanie(
             database=client[settings.DATABASE_NAME],
-            document_models=[Proprietario, Imovel, Inquilino, Contrato],
+            document_models=[Proprietario, Imovel, Inquilino, Contrato, Pagamento],
 
         )
         print("Conexão com MongoDB estabelecida com sucesso!")
