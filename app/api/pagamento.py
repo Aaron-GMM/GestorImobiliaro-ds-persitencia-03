@@ -3,8 +3,9 @@ Rotas da API para gerenciamento de Pagamentos.
 """
 from beanie import PydanticObjectId
 from fastapi import APIRouter, HTTPException, Query
-from app.models.pagamento import Pagamento
+from app.models.pagamento import Pagamento, PagamentoMetrics
 from app.models.contrato import Contrato
+from datetime import date, datetime, timedelta
 
 router = APIRouter(prefix="/pagamentos", tags=["Pagamentos"])
 
