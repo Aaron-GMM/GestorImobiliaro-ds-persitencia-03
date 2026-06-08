@@ -92,6 +92,37 @@ async def obter_pagamento(id: str):
     return pagamento
 
 
+@router.put("/{id}/confirmar", response_model=Pagamento)
+async def confirmar_pagamento(id: str):
+    """
+    Confirma o pagamento de uma parcela.
+    
+    Define a data de pagamento para hoje e altera o status para 'Pago'.
+    
+    Args:
+        id: ID do pagamento.
+    
+    Returns:
+        Pagamento confirmado.
+    
+    Raises:
+        HTTPException: Se o ID for inválido ou pagamento não encontrado.
+    """
+    if not PydanticObjectId.is_valid(id):
+        raise HTTPException(status_code=400, detail="ID inválido")
+    
+    pagamento = await Pagamento.get(id)
+    if not pagamento:
+        raise HTTPException(status_code=404, detail="Pagamento não encontrado")
+    
+    await pagamento.set({
+        "data_pagamento": date.today(),
+        "status": "Pago"
+    })
+    
+    return pagamento
+
+
 @router.get("/metrics/geral")
 async def obter_metricas_pagamentos():
     """
