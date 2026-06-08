@@ -1,8 +1,23 @@
 from datetime import date
 from beanie import Document, Link
 from pydantic import BaseModel, Field
-from .contrato import Contrato
 
+from app.models.imovel import Imovel
+from .contrato import Contrato
+from .inquilino import Inquilino
+
+class PagamentoResponse(BaseModel):
+    id: str
+    imovel: Imovel
+    inquilino: Inquilino
+    numero_parcela: str
+    data_vencimento: date
+    valor_original: float
+    multa: float
+    juros: float
+    valor_total: float
+    status: str
+    data_pagamento: date | None
 
 class PagamentoMetrics(BaseModel):
     pendentes: int
