@@ -5,7 +5,7 @@ Implementa a relação Muitos-para-Muitos entre Inquilino e Imóvel.
 from datetime import date, timedelta
 from beanie import PydanticObjectId
 from fastapi import APIRouter, HTTPException, Query
-from app.models.contrato import Contrato, ContratoCreate, ContratoMetrics, ContratoUpdate
+from app.models.contrato import Contrato, ContratoCreate, ContratoMetrics, ContratoResponse, ContratoUpdate
 from app.models.inquilino import Inquilino
 from app.models.imovel import Imovel
 from app.models.pagamento import Pagamento
@@ -113,7 +113,7 @@ async def criar_contrato(dados: ContratoCreate):
     novo_contrato = Contrato(
         inquilino=inquilino,
         imovel=imovel,
-        data_inicio=dados.data_inicio,
+        data_inicio=Date.today(),
         data_fim=dados.data_fim,
         valor_aluguel=dados.valor_aluguel,
         dia_vencimento=dados.dia_vencimento,
@@ -132,7 +132,7 @@ async def criar_contrato(dados: ContratoCreate):
     return contrato_inserido
 
 
-@router.get("/", response_model=list[Contrato])
+@router.get("/", response_model=list[ContratoResponse])
 async def listar_contratos(
     skip: int = Query(0, ge=0), 
     limit: int = Query(10, ge=1, le=100),
@@ -147,7 +147,7 @@ async def listar_contratos(
         status: Filtrar por status do contrato.
     
     Returns:
-        Lista de contratos.
+        Lista de contratos com nome do inquilino e endereço do imóvel.
     """
     if status:
         contratos = await Contrato.find(
@@ -156,7 +156,25 @@ async def listar_contratos(
     else:
         contratos = await Contrato.find_all().skip(skip).limit(limit).to_list()
     
-    return contratos
+    # Construir resposta com dados relacionados
+    resposta = []
+    for contrato in contratos:
+        # Buscar inquilino e imóvel relacionados        
+        inquilino = await contrato.inquilino.fetch()
+        imovel = await contrato.imovel.fetch()
+        
+        resposta.append(ContratoResponse(
+            id=str(contrato.id),
+            inquilino=inquilino,
+            imovel=imovel,
+            data_inicio=contrato.data_inicio,
+            data_fim=contrato.data_fim,
+            valor_aluguel=contrato.valor_aluguel,
+            dia_vencimento=contrato.dia_vencimento,
+            status=contrato.status
+        ))
+    
+    return resposta
 
 
 @router.get("/inquilino/{id_inquilino}", response_model=list[Contrato])
@@ -203,7 +221,7 @@ async def listar_contratos_por_imovel(id_imovel: str):
     ).to_list()
 
 
-@router.get("/{id}", response_model=Contrato)
+@router.get("/{id}", response_model=ContratoResponse)
 async def obter_contrato(id: str):
     """
     Obtém um contrato pelo ID.
@@ -221,10 +239,23 @@ async def obter_contrato(id: str):
         raise HTTPException(status_code=400, detail="ID inválido")
     
     contrato = await Contrato.get(id)
+    
     if not contrato:
         raise HTTPException(status_code=404, detail="Contrato não encontrado")
-    return contrato
 
+    imovel = await contrato.imovel.fetch()
+    inquilino = await contrato.inquilino.fetch()
+
+    return ContratoResponse(
+        id=str(contrato.id),
+        imovel=imovel,
+        inquilino=inquilino,
+        data_inicio=contrato.data_inicio,
+        data_fim=contrato.data_fim,
+        valor_aluguel=contrato.valor_aluguel,
+        dia_vencimento=contrato.dia_vencimento,
+        status=contrato.status,
+    )
 
 @router.put("/{id}", response_model=Contrato)
 async def atualizar_contrato(id: str, dados: ContratoUpdate):

@@ -30,6 +30,18 @@ class ContratoUpdate(BaseModel):
     dia_vencimento: int | None = None
 
 
+class ContratoResponse(BaseModel):
+    """Schema para resposta de contrato com dados relacionados."""
+    id: str
+    inquilino: Inquilino
+    imovel: Imovel
+    data_inicio: date
+    data_fim: date
+    valor_aluguel: float
+    dia_vencimento: int
+    status: str
+
+
 class Contrato(Document):
     """
     Documento que representa um contrato de aluguel.
