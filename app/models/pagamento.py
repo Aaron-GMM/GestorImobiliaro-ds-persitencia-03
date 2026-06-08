@@ -4,6 +4,11 @@ from pydantic import BaseModel, Field
 from .contrato import Contrato
 
 
+class PagamentoMetrics(BaseModel):
+    pendentes: int
+    atrasados: int
+    pagos_mes: int
+
 class Pagamento(Document):
     """
     Documento que representa uma parcela de pagamento de aluguel.

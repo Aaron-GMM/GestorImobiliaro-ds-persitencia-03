@@ -103,15 +103,17 @@ async def obter_metricas_pagamentos():
     
     Returns:
         Dicionário com as métricas solicitadas.
-    """
-    from datetime import date, timedelta
-    
-    hoje = date.today()
-    primeiro_dia_mes = date(hoje.year, hoje.month, 1)
+    """    
+    hoje = datetime.now()
+    data_inicio = datetime(hoje.year, hoje.month, 1)
+    data_fim = data_inicio + timedelta(days=30)
     
     # Pipeline para contar pendentes
     pipeline_pendentes = [
-        {"$match": {"status": "Pendente"}},
+        {"$match": {
+            "status": "Pendente", 
+            "data_vencimento": {"$gte": data_inicio, "$lt": data_fim}
+        }},
         {"$count": "total"}
     ]
     
@@ -125,26 +127,39 @@ async def obter_metricas_pagamentos():
     pipeline_pagos_mes = [
         {"$match": {
             "status": "Pago",
-            "data_pagamento": {"$gte": primeiro_dia_mes}
+            "data_pagamento": {"$gte": data_inicio, "$lt": data_fim}
         }},
         {"$count": "total"}
     ]
+
     
+    response = PagamentoMetrics(
+        pendentes=0,
+        atrasados=0,
+        pagos_mes=0
+    )
     try:
-        resultado_pendentes = await Pagamento.aggregate(pipeline_pendentes).to_list()
-        resultado_atrasados = await Pagamento.aggregate(pipeline_atrasados).to_list()
-        resultado_pagos_mes = await Pagamento.aggregate(pipeline_pagos_mes).to_list()
+        try:
+            resultado_pendentes = await Pagamento.aggregate(pipeline_pendentes).to_list()
+            response.pendentes = resultado_pendentes[0]["total"] if resultado_pendentes else 0
+            print("Resultado pendentes:", resultado_pendentes)
+        except Exception as error:
+            print("Erro ao buscar pagamentos pendentes:", error)
+        try:
+            resultado_atrasados = await Pagamento.aggregate(pipeline_atrasados).to_list()
+            response.atrasados = resultado_atrasados[0]["total"] if resultado_atrasados else 0
+        except Exception as error:
+            print("Erro ao buscar pagamentos atrasados:", error)
+        try:
+            resultado_pagos_mes = await Pagamento.aggregate(pipeline_pagos_mes).to_list()
+            response.pagos_mes = resultado_pagos_mes[0]["total"] if resultado_pagos_mes else 0
+        except Exception as error:
+            print("Erro ao buscar pagamentos do mês:", error)
         
-        pendentes = resultado_pendentes[0]["total"] if resultado_pendentes else 0
-        atrasados = resultado_atrasados[0]["total"] if resultado_atrasados else 0
-        pagos_mes = resultado_pagos_mes[0]["total"] if resultado_pagos_mes else 0
-    except Exception:
-        pendentes = 0
-        atrasados = 0
-        pagos_mes = 0
+    except Exception as error:
+        response.pendentes = 0
+        response.atrasados = 0
+        response.pagos_mes = 0
+        print("Erro ao buscar métricas de pagamentos:", error)
     
-    return {
-        "pendentes": pendentes,
-        "atrasados": atrasados,
-        "pagos_mes": pagos_mes
-    }
+    return response
