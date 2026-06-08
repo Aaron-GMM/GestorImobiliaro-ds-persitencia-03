@@ -3,14 +3,16 @@ Rotas da API para gerenciamento de Pagamentos.
 """
 from beanie import PydanticObjectId
 from fastapi import APIRouter, HTTPException, Query
-from app.models.pagamento import Pagamento, PagamentoMetrics
+from app.models.pagamento import Pagamento, PagamentoMetrics, PagamentoResponse
 from app.models.contrato import Contrato
+from app.models.inquilino import Inquilino
+from app.models.imovel import Imovel
 from datetime import date, datetime, timedelta
 
 router = APIRouter(prefix="/pagamentos", tags=["Pagamentos"])
 
 
-@router.get("/", response_model=list[Pagamento])
+@router.get("/", response_model=list[PagamentoResponse])
 async def listar_pagamentos(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
@@ -44,7 +46,31 @@ async def listar_pagamentos(
     else:
         pagamentos = await Pagamento.find_all().skip(skip).limit(limit).to_list()
     
-    return pagamentos
+    # Construir resposta com dados relacionados
+    resposta = []
+    for pagamento in pagamentos:
+        # Buscar contrato relacionado
+        contrato = await pagamento.contrato.fetch()
+        
+        # Buscar inquilino e imóvel através do contrato
+        inquilino = await contrato.inquilino.fetch()
+        imovel = await contrato.imovel.fetch()
+        
+        resposta.append(PagamentoResponse(
+            id=str(pagamento.id),
+            imovel=imovel,
+            inquilino=inquilino,
+            numero_parcela=pagamento.numero_parcela,
+            data_vencimento=pagamento.data_vencimento,
+            valor_original=pagamento.valor_original,
+            multa=pagamento.multa,
+            juros=pagamento.juros,
+            valor_total=pagamento.valor_total,
+            status=pagamento.status,
+            data_pagamento=pagamento.data_pagamento
+        ))
+    
+    return resposta
 
 
 @router.get("/contrato/{id_contrato}", response_model=list[Pagamento])
