@@ -52,10 +52,6 @@ async def lifespan(app: FastAPI):
         await task
     except asyncio.CancelledError:
         pass
-    # Iniciar tarefa de verificação de pagamentos atrasados
-    task = asyncio.create_task(verificar_pagamentos_atrasados())
-    
-    yield
 
 app = FastAPI(
     title="Gestor Imobiliário NoSQL",
