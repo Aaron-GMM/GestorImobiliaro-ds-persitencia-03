@@ -2,13 +2,27 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database.database import init_db
 from contextlib import asynccontextmanager
-from app.api import proprietario, imovel, inquilino, contrato, dashboard, consultas
+from app.api import proprietario, imovel, inquilino, contrato, dashboard, consultas, pagamento
+import asyncio
+from app.tasks.gerenciar_atrasos import verificar_pagamentos_atrasados
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Gerencia o ciclo de vida da aplicação, conectando ao banco ao iniciar."""
     await init_db()
+    
+    # Iniciar tarefa de verificação de pagamentos atrasados
+    task = asyncio.create_task(verificar_pagamentos_atrasados())
+    
     yield
+    
+    # Cancelar tarefa ao encerrar a aplicação
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
 
 app = FastAPI(
     title="Gestor Imobiliário NoSQL",
@@ -28,5 +42,6 @@ app.include_router(proprietario.router)
 app.include_router(imovel.router)
 app.include_router(inquilino.router)
 app.include_router(contrato.router)
+app.include_router(pagamento.router)
 app.include_router(dashboard.router)
 app.include_router(consultas.router)
