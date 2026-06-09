@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from beanie import PydanticObjectId
 from fastapi import APIRouter, HTTPException, Query
 from app.models.contrato import Contrato, ContratoCreate, ContratoMetrics, ContratoResponse, ContratoUpdate
+from app.models.pagination import PaginatedResponse
 from app.models.inquilino import Inquilino
 from app.models.imovel import Imovel
 from app.models.pagamento import Pagamento
@@ -59,6 +60,14 @@ async def _gerar_pagamentos_contrato(contrato: Contrato):
     if pagamentos:
         await Pagamento.insert_many(pagamentos)
 
+async def _deletar_pagamentos_contrato(contrato: Contrato):
+    """
+    Deleta todos os pagamentos de um contrato.
+    
+    Args:
+        contrato: Contrato a ser deletado.
+    """
+    await Pagamento.delete_many({"contrato.$id": contrato.id})
 
 @router.post("/", response_model=Contrato)
 async def criar_contrato(dados: ContratoCreate):
@@ -143,7 +152,7 @@ async def criar_contrato(dados: ContratoCreate):
     return contrato_inserido
 
 
-@router.get("/", response_model=list[ContratoResponse])
+@router.get("/", response_model=PaginatedResponse[ContratoResponse])
 async def listar_contratos(
     skip: int = Query(0, ge=0), 
     limit: int = Query(10, ge=1, le=100),
@@ -170,8 +179,15 @@ async def listar_contratos(
     if id_proprietario:
         if not PydanticObjectId.is_valid(id_proprietario):
             raise HTTPException(status_code=400, detail="ID de proprietário inválido")
-        filtros["imovel.proprietario.$id"] = PydanticObjectId(id_proprietario)
+        filtros["proprietario.$id"] = PydanticObjectId(id_proprietario)
     
+    # Buscar total de registros
+    if filtros:
+        total = await Contrato.find(filtros).count()
+    else:
+        total = await Contrato.find_all().count()
+    
+    # Buscar contratos com paginação
     if filtros:
         contratos = await Contrato.find(
             filtros
@@ -180,13 +196,13 @@ async def listar_contratos(
         contratos = await Contrato.find_all().skip(skip).limit(limit).to_list()
     
     # Construir resposta com dados relacionados
-    resposta = []
+    content = []
     for contrato in contratos:
         # Buscar inquilino e imóvel relacionados        
         inquilino = await contrato.inquilino.fetch()
         imovel = await contrato.imovel.fetch()
 
-        resposta.append(ContratoResponse(
+        content.append(ContratoResponse(
             id=str(contrato.id),
             inquilino=inquilino,
             imovel=imovel,
@@ -198,7 +214,22 @@ async def listar_contratos(
             proprietario=None
         ))
     
-    return resposta
+    # Calcular metadados de paginação
+    pages = (total + limit - 1) // limit if total > 0 else 0
+    current_page = (skip // limit) + 1 if total > 0 else 1
+    
+    previous = current_page - 1 if current_page > 1 else None
+    next_page = current_page + 1 if current_page < pages else None
+    
+    return PaginatedResponse(
+        previous=previous,
+        next=next_page,
+        last=pages,
+        start=skip,
+        content=content,
+        total=total,
+        pages=pages
+    )
 
 
 @router.get("/inquilino/{id_inquilino}", response_model=list[Contrato])
@@ -379,6 +410,9 @@ async def encerrar_contrato(id: str):
     if imovel:
         await imovel.set({"status": "Disponivel"})
     
+    # Deletar os pagamentos do contrato
+    await _deletar_pagamentos_contrato(contrato)
+
     # Encerrar contrato
     await contrato.set({"status": "Encerrado"})
     return contrato
@@ -399,34 +433,40 @@ async def obter_metricas_gerais(id_proprietario: str = Query(None, description="
     """
     hoje = date.today()
     vencendo = (hoje + timedelta(days=30)).strftime("%Y-%m-%d")
-        
-    pipeline_vigencia_match = {"status": "Ativo"}
-    if id_proprietario:
-        pipeline_vigencia_match["proprietario.$id"] = id_proprietario
     
+    
+    
+    pipeline_vencendo_match = {"status": "Ativo", "data_fim": {"$lte": vencendo}}
+    pipeline_disponiveis_match = {"status": "Disponivel"}
+    pipeline_vigencia_match = {"status": "Ativo"}
+        
+    if id_proprietario:
+        if not PydanticObjectId.is_valid(id_proprietario):
+            raise HTTPException(status_code=400, detail="ID de proprietário inválido")
+
+        proprietario = await Proprietario.get(id_proprietario)
+        if not proprietario:
+            raise HTTPException(status_code=404, detail="Proprietário não encontrado")
+
+        pipeline_vigencia_match["proprietario.$id"] = proprietario.id
+        pipeline_vencendo_match["proprietario.$id"] = proprietario.id
+        pipeline_disponiveis_match["proprietario.$id"] = proprietario.id
+
     pipeline_vigencia = [
         {"$match": pipeline_vigencia_match},
         {"$count": "total"}
     ]
-    
-    pipeline_vencendo_match = {"status": "Ativo", "data_fim": {"$lte": vencendo}}
-    if id_proprietario:
-        pipeline_vencendo_match["proprietario.$id"] = id_proprietario
-    
+
     pipeline_vencendo = [
         {"$match": pipeline_vencendo_match},
         {"$count": "total"}
     ]
- 
-    pipeline_disponiveis_match = {"status": "Disponivel"}
-    if id_proprietario:
-        pipeline_disponiveis_match["proprietario.$id"] = id_proprietario
-    
+
     pipeline_disponiveis = [
         {"$match": pipeline_disponiveis_match},
         {"$count": "total"}
     ]
-    
+   
     response = ContratoMetrics(
         contratos_ativos=0,
         contratos_vencendo=0,

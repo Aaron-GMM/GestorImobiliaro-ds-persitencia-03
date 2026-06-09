@@ -5,6 +5,7 @@ from beanie import PydanticObjectId
 from dns.zonefile import read_rrsets
 from fastapi import APIRouter, HTTPException, Query
 from app.models.pagamento import Pagamento, PagamentoMetrics, PagamentoResponse, Encargo, ConfigEncargo
+from app.models.pagination import PaginatedResponse
 from app.models.proprietario import Proprietario
 
 from datetime import date, datetime, timedelta
@@ -12,7 +13,7 @@ from datetime import date, datetime, timedelta
 router = APIRouter(prefix="/pagamentos", tags=["Pagamentos"])
 
 
-@router.get("/", response_model=list[PagamentoResponse])
+@router.get("/", response_model=PaginatedResponse[PagamentoResponse])
 async def listar_pagamentos(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
@@ -45,15 +46,22 @@ async def listar_pagamentos(
     if id_proprietario:
         if not PydanticObjectId.is_valid(id_proprietario):
             raise HTTPException(status_code=400, detail="ID de proprietário inválido")
-        filtros["contrato.proprietario.$id"] = PydanticObjectId(id_proprietario)
+        filtros["proprietario.$id"] = PydanticObjectId(id_proprietario)
     
+    # Buscar total de registros
+    if filtros:
+        total = await Pagamento.find(filtros).count()
+    else:
+        total = await Pagamento.find_all().count()
+    
+    # Buscar pagamentos com paginação
     if filtros:
         pagamentos = await Pagamento.find(filtros).skip(skip).limit(limit).to_list()
     else:
         pagamentos = await Pagamento.find_all().skip(skip).limit(limit).to_list()
     
     # Construir resposta com dados relacionados
-    resposta = []
+    content = []
     for pagamento in pagamentos:
         # Buscar contrato relacionado
         contrato = await pagamento.contrato.fetch()
@@ -63,7 +71,7 @@ async def listar_pagamentos(
         imovel = await contrato.imovel.fetch()
         proprietario = await contrato.proprietario.fetch()
 
-        resposta.append(PagamentoResponse(
+        content.append(PagamentoResponse(
             id=str(pagamento.id),
             imovel=imovel,
             inquilino=inquilino,
@@ -78,7 +86,22 @@ async def listar_pagamentos(
             data_pagamento=pagamento.data_pagamento,
         ))
     
-    return resposta
+    # Calcular metadados de paginação
+    pages = (total + limit - 1) // limit if total > 0 else 0
+    current_page = (skip // limit) + 1 if total > 0 else 1
+    
+    previous = current_page - 1 if current_page > 1 else None
+    next_page = current_page + 1 if current_page < pages else None
+    
+    return PaginatedResponse(
+        previous=previous,
+        next=next_page,
+        last=pages,
+        start=skip,
+        content=content,
+        total=total,
+        pages=pages
+    )
 
 
 @router.get("/contrato/{id_contrato}", response_model=list[Pagamento])
@@ -226,62 +249,35 @@ async def obter_metricas_pagamentos(id_proprietario: str = Query(None, descripti
     hoje = datetime.now()
     data_inicio = datetime(hoje.year, hoje.month, 1)
     data_fim = data_inicio + timedelta(days=30)
-    
-    # Pipeline para contar pendentes
+
     pipeline_pendentes_match = {"status": "Pendente", "data_vencimento": {"$gte": data_inicio, "$lt": data_fim}}
+    pipeline_atrasados_match = {"status": "Atrasado"}
+    pipeline_pagos_mes_match = {"status": "Pago", "data_pagamento": {"$gte": data_inicio, "$lt": data_fim}}
+
     if id_proprietario:
-        pipeline_pendentes_match["proprietario.$id"] = id_proprietario
+        if not PydanticObjectId.is_valid(id_proprietario):
+            raise HTTPException(status_code=400, detail="ID do proprietário inválido")
+        
+        proprietario = await Proprietario.get(id_proprietario)
+        
+        if not proprietario:
+            raise HTTPException(status_code=404, detail="Proprietário não encontrado")
+
+        pipeline_pendentes_match["proprietario.$id"] = proprietario.id
+        pipeline_atrasados_match["proprietario.$id"] = proprietario.id
+        pipeline_pagos_mes_match["proprietario.$id"] = proprietario.id
     
     pipeline_pendentes = [
         {"$match": pipeline_pendentes_match},
         {"$count": "total"}
     ]
     
-    # Pipeline para contar atrasados
-    pipeline_atrasados_match = {"status": "Atrasado"}
-    if id_proprietario:
-        pipeline_atrasados_match["proprietario.$id"] = id_proprietario
-    
     pipeline_atrasados = [
         {"$match": pipeline_atrasados_match},
         {"$count": "total"}
     ]
     
-    # Pipeline para contar pagos no mês
-    pipeline_pagos_mes_match = {"status": "Pago", "data_pagamento": {"$gte": data_inicio, "$lt": data_fim}}
-    if id_proprietario:
-        pipeline_pagos_mes_match["proprietario.$id"] = id_proprietario
-    
-    pipeline_pagos_mes = [
-        {"$match": pipeline_pagos_mes_match},
-        {"$count": "total"}
-    ]
-    
-    # Pipeline para contar pagos no mês
-    pipeline_pagos_mes_match = {"status": "Pago", "data_pagamento": {"$gte": data_inicio, "$lt": data_fim}}
-    if id_proprietario:
-        pipeline_pagos_mes_match["proprietario.$id"] = id_proprietario
-    
-    pipeline_pagos_mes = [
-        {"$match": pipeline_pagos_mes_match},
-        {"$count": "total"}
-    ]
-    
-    # Pipeline para contar atrasados
-    pipeline_atrasados_match = {"status": "Atrasado"}
-    if id_proprietario:
-        pipeline_atrasados_match["proprietario.$id"] = id_proprietario
-    
-    pipeline_atrasados = [
-        {"$match": pipeline_atrasados_match},
-        {"$count": "total"}
-    ]
-    
-    # Pipeline para contar pagos no mês
-    pipeline_pagos_mes_match = {"status": "Pago", "data_pagamento": {"$gte": data_inicio, "$lt": data_fim}}
-    if id_proprietario:
-        pipeline_pagos_mes_match["proprietario.$id"] = id_proprietario
-    
+        
     pipeline_pagos_mes = [
         {"$match": pipeline_pagos_mes_match},
         {"$count": "total"}
