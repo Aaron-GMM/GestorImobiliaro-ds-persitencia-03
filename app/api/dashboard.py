@@ -3,41 +3,95 @@ from app.models.imovel import Imovel
 from app.models.contrato import Contrato
 from app.models.proprietario import Proprietario
 from app.models.inquilino import Inquilino
+from app.models.statistics import Statistics, RecentActivity
+from app.models.pagamento import Pagamento
+from fastapi import Query, HTTPException
+from beanie import PydanticObjectId
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard e Agregações"])
 
 
-@router.get("/estatisticas")
-async def get_estatisticas():
-    """
-    Retorna estatísticas agregadas usando Aggregation Pipeline do MongoDB via Beanie.
-    Requisito: e) Agregações e contagens utilizando aggregation pipeline
-    """
-
-    # 1. Agregação: Quantidade de imóveis por tipo
-    # Sintaxe nativa do Beanie: Model.aggregate(pipeline).to_list()
+@router.get("/estatisticas", response_model=Statistics)
+async def get_estatisticas(id_proprietario: str = Query(None, description="ID do proprietário")):
     pipeline_imoveis = [
-        {"$group": {"_id": "$tipo_imovel", "quantidade": {"$sum": 1}}}
+        {"$match": {
+            "status": {
+                "$in": ["Alugado", "Disponivel"]
+            }
+        }},
+        {"$group": {
+            "_id": "$status",
+            "total": {"$sum": 1}
+        }},
+        {"$project": {
+            "_id": 0,
+            "status": "$_id",
+            "total": 1
+        }}
     ]
 
-    # Com o motor<3.7, o 'await' aqui volta a funcionar corretamente
-    qtd_por_tipo = await Imovel.aggregate(pipeline_imoveis).to_list()
+    primeiro_dia = datetime.now().replace(day=1, month=7)
+    ultimo_dia = primeiro_dia.replace(month=primeiro_dia.month)
 
-    # 2. Agregação: Receita Total (Soma de valor_aluguel onde status='Ativo')
-    pipeline_receita = [
-        {"$match": {"status": "Ativo"}},
-        {"$group": {"_id": None, "receita_total": {"$sum": "$valor_aluguel"}}}
+    pipeline_pagamentos_pendentes = [
+        {"$match": {
+            "status": "Pendente",
+            "data_vencimento": {"$gte": primeiro_dia, "$lt": ultimo_dia}
+        }},
+        {"$count": "total"}
     ]
 
-    resultado_receita = await Contrato.aggregate(pipeline_receita).to_list()
+    if id_proprietario:
+        if not PydanticObjectId.is_valid(id_proprietario):
+            raise HTTPException(status_code=400, detail="ID do proprietário inválido")
+        
+        proprietario = await Proprietario.get(PydanticObjectId(id_proprietario))
 
-    # Tratamento para caso não haja contratos (lista vazia)
-    receita_total = resultado_receita[0]["receita_total"] if resultado_receita else 0.0
+        if not proprietario:
+            raise HTTPException(status_code=404, detail="Proprietário não encontrado")
 
-    return {
-        "imoveis_por_categoria": qtd_por_tipo,
-        "receita_mensal_atual": receita_total
-    }
+        pipeline_imoveis[0]["$match"]["proprietario.$id"] = proprietario.id
+        pipeline_pagamentos_pendentes[0]["$match"]["proprietario.$id"] = proprietario.id
+
+
+    imoveis = await Imovel.aggregate(pipeline_imoveis).to_list()
+
+    pagamentos = await Pagamento.aggregate(pipeline_pagamentos_pendentes).to_list()
+
+    return Statistics(
+        imoveis_alugados=imoveis[0]["total"] if imoveis[0] else 0,
+        imoveis_disponiveis=imoveis[1]["total"] if imoveis[1] else 0,
+        pagamentos_pendentes=pagamentos[0]["total"] if pagamentos else 0
+    )
+   
+@router.get("/atividade-recente")
+async def get_atividade_recente(id_proprietario: str = Query(None, description="ID do proprietário")):
+    filtro_base = {}
+    if id_proprietario:
+        if not PydanticObjectId.is_valid(id_proprietario):
+            raise HTTPException(status_code=400, detail="ID do proprietário inválido")
+
+        proprietario = await Proprietario.get(PydanticObjectId(id_proprietario))
+
+        if not proprietario:
+            raise HTTPException(status_code=404, detail="Proprietário não encontrado")
+
+        filtro_base["proprietario.$id"] = proprietario.id
+    
+    inquilino = await Inquilino.find_one(filtro_base, sort={"_id": -1})
+    contrato = await Contrato.find_one(filtro_base, sort={"_id": -1})
+    imovel_alugado = await contrato.imovel.fetch() if contrato else None
+    
+    filtro_base["status"] = "Disponivel"
+    imovel_disponivel = await Imovel.find_one(filtro_base, sort={"_id": -1})
+    
+    return RecentActivity(
+        imovel_alugado=imovel_alugado.apelido_imovel if imovel_alugado else "N/A",
+        inquilino=inquilino.nome if inquilino else "N/A",
+        imovel_disponivel=imovel_disponivel.apelido_imovel if imovel_disponivel else "N/A"
+    )
+
 @router.get("/completo")
 async def get_dashboard_completo():
     proprietarios = await Proprietario.find_all().to_list()
