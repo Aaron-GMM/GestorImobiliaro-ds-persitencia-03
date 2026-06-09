@@ -67,7 +67,7 @@ async def _deletar_pagamentos_contrato(contrato: Contrato):
     Args:
         contrato: Contrato a ser deletado.
     """
-    await Pagamento.delete_many({"contrato.$id": contrato.id})
+    await Pagamento.find({"contrato.$id": contrato.id}).delete()
 
 @router.post("/", response_model=Contrato)
 async def criar_contrato(dados: ContratoCreate):
