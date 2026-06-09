@@ -19,7 +19,9 @@ async def listar_pagamentos(
     limit: int = Query(10, ge=1, le=100),
     status: str | None = Query(None, description="Filtrar por status (Pendente, Atrasado, Pago)"),
     id_contrato: str | None = Query(None, description="Filtrar por contrato"),
-    id_proprietario: str | None = Query(None, description="Filtrar por proprietário")
+    id_proprietario: str | None = Query(None, description="Filtrar por proprietário"),
+    order_by: str = Query("criado_em", description="Ordenar por campo (data_vencimento, valor_total, status)"),
+    order_direction: str = Query("desc", description="Direção da ordenação (asc, desc)")
 ):
     """
     Lista todos os pagamentos com paginação e filtros opcionais.
@@ -55,10 +57,11 @@ async def listar_pagamentos(
         total = await Pagamento.find_all().count()
     
     # Buscar pagamentos com paginação
+    direction = str(1 if order_direction.lower() == "asc" else -1)
     if filtros:
-        pagamentos = await Pagamento.find(filtros).skip(skip).limit(limit).to_list()
+        pagamentos = await Pagamento.find(filtros).skip(skip).limit(limit).sort(order_by, direction).to_list()
     else:
-        pagamentos = await Pagamento.find_all().skip(skip).limit(limit).to_list()
+        pagamentos = await Pagamento.find_all().skip(skip).limit(limit).sort(order_by, direction).to_list()
     
     # Construir resposta com dados relacionados
     content = []

@@ -67,5 +67,6 @@ async def verificar_pagamentos_atrasados():
         except Exception as e:
             print(f"Erro ao verificar pagamentos atrasados: {e}")
         
-        tempo = 24 * 60 * 60  # 24 horas em segundos
+        # tempo = 24 * 60 * 60  # 24 horas em segundos
+        tempo = 30  # 30 segundos para testes
         await asyncio.sleep(tempo)

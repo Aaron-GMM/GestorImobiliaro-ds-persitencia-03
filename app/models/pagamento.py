@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from beanie import Document, Link
 from pydantic import BaseModel, Field
 
@@ -62,6 +62,7 @@ class Pagamento(Document):
     status: str = Field(default="Pendente", description="Pendente, Atrasado, Pago")
     data_pagamento: date | None = Field(default=None, description="Data de pagamento")
     proprietario: Link[Proprietario] = Field(description="Proprietário associado ao pagamento")
+    criado_em: datetime = Field(default_factory=datetime.now, description="Data de criação do pagamento")
 
     class Settings:
         name = "pagamentos"
