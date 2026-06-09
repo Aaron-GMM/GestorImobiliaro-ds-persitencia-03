@@ -2,11 +2,11 @@
 Rotas da API para gerenciamento de Pagamentos.
 """
 from beanie import PydanticObjectId
+from dns.zonefile import read_rrsets
 from fastapi import APIRouter, HTTPException, Query
-from app.models.pagamento import Pagamento, PagamentoMetrics, PagamentoResponse
-from app.models.contrato import Contrato
-from app.models.inquilino import Inquilino
-from app.models.imovel import Imovel
+from app.models.pagamento import Pagamento, PagamentoMetrics, PagamentoResponse, Encargo, ConfigEncargo
+from app.models.proprietario import Proprietario
+
 from datetime import date, datetime, timedelta
 
 router = APIRouter(prefix="/pagamentos", tags=["Pagamentos"])
@@ -17,7 +17,8 @@ async def listar_pagamentos(
     skip: int = Query(0, ge=0),
     limit: int = Query(10, ge=1, le=100),
     status: str | None = Query(None, description="Filtrar por status (Pendente, Atrasado, Pago)"),
-    id_contrato: str | None = Query(None, description="Filtrar por contrato")
+    id_contrato: str | None = Query(None, description="Filtrar por contrato"),
+    id_proprietario: str | None = Query(None, description="Filtrar por proprietário")
 ):
     """
     Lista todos os pagamentos com paginação e filtros opcionais.
@@ -41,6 +42,11 @@ async def listar_pagamentos(
             raise HTTPException(status_code=400, detail="ID de contrato inválido")
         filtros["contrato.$id"] = PydanticObjectId(id_contrato)
     
+    if id_proprietario:
+        if not PydanticObjectId.is_valid(id_proprietario):
+            raise HTTPException(status_code=400, detail="ID de proprietário inválido")
+        filtros["contrato.proprietario.$id"] = PydanticObjectId(id_proprietario)
+    
     if filtros:
         pagamentos = await Pagamento.find(filtros).skip(skip).limit(limit).to_list()
     else:
@@ -55,7 +61,8 @@ async def listar_pagamentos(
         # Buscar inquilino e imóvel através do contrato
         inquilino = await contrato.inquilino.fetch()
         imovel = await contrato.imovel.fetch()
-        
+        proprietario = await contrato.proprietario.fetch()
+
         resposta.append(PagamentoResponse(
             id=str(pagamento.id),
             imovel=imovel,
@@ -67,7 +74,8 @@ async def listar_pagamentos(
             juros=pagamento.juros,
             valor_total=pagamento.valor_total,
             status=pagamento.status,
-            data_pagamento=pagamento.data_pagamento
+            proprietario=proprietario,
+            data_pagamento=pagamento.data_pagamento,
         ))
     
     return resposta
@@ -95,7 +103,7 @@ async def listar_pagamentos_por_contrato(id_contrato: str):
     ).to_list()
 
 
-@router.get("/{id}", response_model=Pagamento)
+@router.get("/{id}", response_model=PagamentoResponse)
 async def obter_pagamento(id: str):
     """
     Obtém um pagamento pelo ID.
@@ -113,9 +121,29 @@ async def obter_pagamento(id: str):
         raise HTTPException(status_code=400, detail="ID inválido")
     
     pagamento = await Pagamento.get(id)
+
     if not pagamento:
         raise HTTPException(status_code=404, detail="Pagamento não encontrado")
-    return pagamento
+    
+    contrato = await pagamento.contrato.fetch()
+    
+    inquilino = await contrato.inquilino.fetch()
+    imovel = await contrato.imovel.fetch()
+    
+    return PagamentoResponse(
+        id=str(pagamento.id),
+        imovel=imovel,
+        inquilino=inquilino,
+        numero_parcela=pagamento.numero_parcela,
+        data_vencimento=pagamento.data_vencimento,
+        valor_original=pagamento.valor_original,
+        multa=pagamento.multa,
+        juros=pagamento.juros,
+        valor_total=pagamento.valor_total,
+        status=pagamento.status,
+        proprietario=None,
+        data_pagamento=pagamento.data_pagamento,
+    )
 
 
 @router.put("/{id}/confirmar", response_model=Pagamento)
@@ -149,8 +177,41 @@ async def confirmar_pagamento(id: str):
     return pagamento
 
 
+@router.post("/configurar-encargos", response_model=Encargo)
+async def configurar_encargos(dados: ConfigEncargo):
+    """
+    Configura os parâmetros de cálculo de encargos para pagamentos em atraso.
+    
+    Args:
+        dados: Configuração dos encargos (multa, juros, tolerância, valor mínimo).
+    
+    Returns:
+        Configuração salva.
+    """
+    encargo_exists = await Encargo.find_one({"proprietario.$id": dados.id_proprietario})
+    
+    if encargo_exists:
+        raise HTTPException(status_code=400, detail="Já existe uma configuração de encargos para este proprietário")
+    
+    # Validar ID do proprietário
+    proprietario = await Proprietario.get(dados.id_proprietario)
+    if not proprietario:
+        raise HTTPException(status_code=404, detail="Proprietário não encontrado")
+    
+    encargo = Encargo(
+        multa_percentual=dados.multa_percentual,
+        juros_mora=dados.juros_mora,
+        tolerancia_dias=dados.tolerancia_dias,
+        valor_minimo_multa=dados.valor_minimo_multa,
+        proprietario=proprietario
+    )
+
+    response = await encargo.insert()
+    
+    return response
+
 @router.get("/metrics/geral")
-async def obter_metricas_pagamentos():
+async def obter_metricas_pagamentos(id_proprietario: str = Query(None, description="ID do proprietário")):
     """
     Retorna métricas gerais de pagamentos.
     
@@ -167,29 +228,64 @@ async def obter_metricas_pagamentos():
     data_fim = data_inicio + timedelta(days=30)
     
     # Pipeline para contar pendentes
+    pipeline_pendentes_match = {"status": "Pendente", "data_vencimento": {"$gte": data_inicio, "$lt": data_fim}}
+    if id_proprietario:
+        pipeline_pendentes_match["proprietario.$id"] = id_proprietario
+    
     pipeline_pendentes = [
-        {"$match": {
-            "status": "Pendente", 
-            "data_vencimento": {"$gte": data_inicio, "$lt": data_fim}
-        }},
+        {"$match": pipeline_pendentes_match},
         {"$count": "total"}
     ]
     
     # Pipeline para contar atrasados
+    pipeline_atrasados_match = {"status": "Atrasado"}
+    if id_proprietario:
+        pipeline_atrasados_match["proprietario.$id"] = id_proprietario
+    
     pipeline_atrasados = [
-        {"$match": {"status": "Atrasado"}},
+        {"$match": pipeline_atrasados_match},
         {"$count": "total"}
     ]
     
     # Pipeline para contar pagos no mês
+    pipeline_pagos_mes_match = {"status": "Pago", "data_pagamento": {"$gte": data_inicio, "$lt": data_fim}}
+    if id_proprietario:
+        pipeline_pagos_mes_match["proprietario.$id"] = id_proprietario
+    
     pipeline_pagos_mes = [
-        {"$match": {
-            "status": "Pago",
-            "data_pagamento": {"$gte": data_inicio, "$lt": data_fim}
-        }},
+        {"$match": pipeline_pagos_mes_match},
         {"$count": "total"}
     ]
-
+    
+    # Pipeline para contar pagos no mês
+    pipeline_pagos_mes_match = {"status": "Pago", "data_pagamento": {"$gte": data_inicio, "$lt": data_fim}}
+    if id_proprietario:
+        pipeline_pagos_mes_match["proprietario.$id"] = id_proprietario
+    
+    pipeline_pagos_mes = [
+        {"$match": pipeline_pagos_mes_match},
+        {"$count": "total"}
+    ]
+    
+    # Pipeline para contar atrasados
+    pipeline_atrasados_match = {"status": "Atrasado"}
+    if id_proprietario:
+        pipeline_atrasados_match["proprietario.$id"] = id_proprietario
+    
+    pipeline_atrasados = [
+        {"$match": pipeline_atrasados_match},
+        {"$count": "total"}
+    ]
+    
+    # Pipeline para contar pagos no mês
+    pipeline_pagos_mes_match = {"status": "Pago", "data_pagamento": {"$gte": data_inicio, "$lt": data_fim}}
+    if id_proprietario:
+        pipeline_pagos_mes_match["proprietario.$id"] = id_proprietario
+    
+    pipeline_pagos_mes = [
+        {"$match": pipeline_pagos_mes_match},
+        {"$count": "total"}
+    ]
     
     response = PagamentoMetrics(
         pendentes=0,
@@ -200,7 +296,6 @@ async def obter_metricas_pagamentos():
         try:
             resultado_pendentes = await Pagamento.aggregate(pipeline_pendentes).to_list()
             response.pendentes = resultado_pendentes[0]["total"] if resultado_pendentes else 0
-            print("Resultado pendentes:", resultado_pendentes)
         except Exception as error:
             print("Erro ao buscar pagamentos pendentes:", error)
         try:

@@ -9,6 +9,7 @@ from app.models.contrato import Contrato, ContratoCreate, ContratoMetrics, Contr
 from app.models.inquilino import Inquilino
 from app.models.imovel import Imovel
 from app.models.pagamento import Pagamento
+from app.models.proprietario import Proprietario
 
 router = APIRouter(prefix="/contratos", tags=["Contratos"])
 
@@ -49,7 +50,8 @@ async def _gerar_pagamentos_contrato(contrato: Contrato):
             multa=0.0,
             juros=0.0,
             valor_total=contrato.valor_aluguel,
-            status="Pendente"
+            status="Pendente",
+            proprietario=contrato.proprietario
         )
         pagamentos.append(pagamento)
     
@@ -84,6 +86,10 @@ async def criar_contrato(dados: ContratoCreate):
     # Validar ID do imóvel
     if not PydanticObjectId.is_valid(dados.id_imovel):
         raise HTTPException(status_code=400, detail="ID de imóvel inválido")
+
+    # Validar ID do proprietário
+    if not PydanticObjectId.is_valid(dados.id_proprietario):
+        raise HTTPException(status_code=400, detail="ID de proprietário inválido")
     
     # Buscar inquilino
     inquilino = await Inquilino.get(dados.id_inquilino)
@@ -94,6 +100,10 @@ async def criar_contrato(dados: ContratoCreate):
     imovel = await Imovel.get(dados.id_imovel)
     if not imovel:
         raise HTTPException(status_code=404, detail="Imóvel não encontrado")
+
+    proprietario = await Proprietario.get(dados.id_proprietario)
+    if not proprietario:
+        raise HTTPException(status_code=404, detail="Proprietário não encontrado")
     
     # Verificar se o imóvel já está alugado
     if imovel.status == "Alugado":
@@ -113,11 +123,12 @@ async def criar_contrato(dados: ContratoCreate):
     novo_contrato = Contrato(
         inquilino=inquilino,
         imovel=imovel,
-        data_inicio=Date.today(),
+        data_inicio=dados.data_inicio,
         data_fim=dados.data_fim,
         valor_aluguel=dados.valor_aluguel,
         dia_vencimento=dados.dia_vencimento,
-        status="Ativo"
+        status="Ativo",
+        proprietario=proprietario
     )
     
     # Inserir contrato
@@ -136,7 +147,8 @@ async def criar_contrato(dados: ContratoCreate):
 async def listar_contratos(
     skip: int = Query(0, ge=0), 
     limit: int = Query(10, ge=1, le=100),
-    status: str | None = Query(None, description="Filtrar por status (Ativo, Encerrado, Cancelado)")
+    status: str | None = Query(None, description="Filtrar por status (Ativo, Encerrado, Cancelado)"),
+    id_proprietario: str | None = Query(None, description="Filtrar por proprietário")
 ):
     """
     Lista todos os contratos com paginação e filtro opcional por status.
@@ -145,13 +157,24 @@ async def listar_contratos(
         skip: Número de registros a pular.
         limit: Número máximo de registros a retornar.
         status: Filtrar por status do contrato.
+        id_proprietario: Filtrar por proprietário.
     
     Returns:
         Lista de contratos com nome do inquilino e endereço do imóvel.
     """
+    filtros = {}
+    
     if status:
+        filtros["status"] = status
+    
+    if id_proprietario:
+        if not PydanticObjectId.is_valid(id_proprietario):
+            raise HTTPException(status_code=400, detail="ID de proprietário inválido")
+        filtros["imovel.proprietario.$id"] = PydanticObjectId(id_proprietario)
+    
+    if filtros:
         contratos = await Contrato.find(
-            {"status": status}
+            filtros
         ).skip(skip).limit(limit).to_list()
     else:
         contratos = await Contrato.find_all().skip(skip).limit(limit).to_list()
@@ -162,7 +185,7 @@ async def listar_contratos(
         # Buscar inquilino e imóvel relacionados        
         inquilino = await contrato.inquilino.fetch()
         imovel = await contrato.imovel.fetch()
-        
+
         resposta.append(ContratoResponse(
             id=str(contrato.id),
             inquilino=inquilino,
@@ -171,7 +194,8 @@ async def listar_contratos(
             data_fim=contrato.data_fim,
             valor_aluguel=contrato.valor_aluguel,
             dia_vencimento=contrato.dia_vencimento,
-            status=contrato.status
+            status=contrato.status,
+            proprietario=None
         ))
     
     return resposta
@@ -361,7 +385,7 @@ async def encerrar_contrato(id: str):
 
 
 @router.get("/metrics/geral", response_model=ContratoMetrics)
-async def obter_metricas_gerais():
+async def obter_metricas_gerais(id_proprietario: str = Query(None, description="ID do proprietário")):
     """
     Retorna métricas gerais de contratos e imóveis.
     
@@ -376,23 +400,30 @@ async def obter_metricas_gerais():
     hoje = date.today()
     vencendo = (hoje + timedelta(days=30)).strftime("%Y-%m-%d")
         
+    pipeline_vigencia_match = {"status": "Ativo"}
+    if id_proprietario:
+        pipeline_vigencia_match["proprietario.$id"] = id_proprietario
+    
     pipeline_vigencia = [
-        {"$match": {
-            "status": "Ativo"
-        }},
+        {"$match": pipeline_vigencia_match},
         {"$count": "total"}
     ]
     
+    pipeline_vencendo_match = {"status": "Ativo", "data_fim": {"$lte": vencendo}}
+    if id_proprietario:
+        pipeline_vencendo_match["proprietario.$id"] = id_proprietario
+    
     pipeline_vencendo = [
-        {"$match": {
-            "status": "Ativo",
-            "data_fim": {"$lte": vencendo}
-        }},
+        {"$match": pipeline_vencendo_match},
         {"$count": "total"}
     ]
  
+    pipeline_disponiveis_match = {"status": "Disponivel"}
+    if id_proprietario:
+        pipeline_disponiveis_match["proprietario.$id"] = id_proprietario
+    
     pipeline_disponiveis = [
-        {"$match": {"status": "Disponivel"}},
+        {"$match": pipeline_disponiveis_match},
         {"$count": "total"}
     ]
     
