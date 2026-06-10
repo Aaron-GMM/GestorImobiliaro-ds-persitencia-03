@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from app.api.common import validar_object_id, extrair_link_id
 from app.models.inquilino import Inquilino, InquilinoCreate, InquilinoUpdate, InquilinoResponse
+from app.models.pagination import PaginatedResponse
 from app.models.proprietario import Proprietario
 
 router = APIRouter(prefix="/inquilinos", tags=["Inquilinos"])
@@ -77,11 +78,31 @@ async def buscar_inquilinos(
     return [_inquilino_to_response(inquilino) for inquilino in inquilinos]
 
 
-@router.get("/proprietario/{id_proprietario}", response_model=list[InquilinoResponse])
-async def listar_inquilinos_por_proprietario(id_proprietario: str):
+@router.get("/proprietario/{id_proprietario}", response_model=PaginatedResponse[InquilinoResponse])
+async def listar_inquilinos_por_proprietario(
+    id_proprietario: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100)
+):
     owner_id = validar_object_id(id_proprietario, "ID de proprietário")
-    inquilinos = await Inquilino.find({"proprietario.$id": owner_id}).to_list()
-    return [_inquilino_to_response(inquilino) for inquilino in inquilinos]
+    filtros = {"proprietario.$id": owner_id}
+    total = await Inquilino.find(filtros).count()
+    inquilinos = await Inquilino.find(filtros).skip(skip).limit(limit).to_list()
+    content = [_inquilino_to_response(inquilino) for inquilino in inquilinos]
+    pages = (total + limit - 1) // limit if total > 0 else 0
+    current_page = (skip // limit) + 1 if total > 0 else 1
+    previous = current_page - 1 if current_page > 1 else None
+    next_page = current_page + 1 if current_page < pages else None
+
+    return PaginatedResponse(
+        previous=previous,
+        next=next_page,
+        last=pages,
+        start=skip,
+        content=content,
+        total=total,
+        pages=pages
+    )
 
 
 @router.get("/{id}", response_model=InquilinoResponse)
