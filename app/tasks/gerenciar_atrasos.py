@@ -15,21 +15,26 @@ async def verificar_pagamentos_atrasados():
             hoje = date.today()
             
             encargos = await Encargo.find_all().to_list()
-            
-            if not encargos:
+            if len(encargos) < 1:
                 pagamentos_atrasados = await Pagamento.find({
                     "status": "Pendente",
                     "data_vencimento": {"$lt": hoje}
                 }).to_list()
 
                 for pagamento in pagamentos_atrasados:
+                    multa = 2.0
+                    juros = 0.33
+                    valor_total = pagamento.valor_original * (1 + multa/100) + pagamento.valor_original * (juros/100)
+
                     await pagamento.set({
-                        "status": "Atrasado"
+                        "status": "Atrasado",
+                        "multa": multa,
+                        "juros": juros,
+                        "valor_total": valor_total
                     })
 
                 print(f"Atualizados {len(pagamentos_atrasados)} pagamentos para 'Atrasado'")
                 
-
             for encargo in encargos:
                 pagamentos_atrasados = await Pagamento.find({
                     "proprietario": encargo.proprietario,
@@ -68,5 +73,5 @@ async def verificar_pagamentos_atrasados():
             print(f"Erro ao verificar pagamentos atrasados: {e}")
         
         # tempo = 24 * 60 * 60  # 24 horas em segundos
-        tempo = 30  # 30 segundos para testes
+        tempo = 10  # 10 segundos para testes
         await asyncio.sleep(tempo)
