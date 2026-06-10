@@ -31,6 +31,8 @@ async def get_estatisticas(id_proprietario: str = Query(None, description="ID do
         }}
     ]
 
+    imoveis_response = {"Disponivel": 0, "Alugado": 0}
+
     primeiro_dia = datetime.now().replace(day=1, month=7)
     ultimo_dia = primeiro_dia.replace(month=primeiro_dia.month)
 
@@ -59,9 +61,12 @@ async def get_estatisticas(id_proprietario: str = Query(None, description="ID do
 
     pagamentos = await Pagamento.aggregate(pipeline_pagamentos_pendentes).to_list()
 
+    for imovel in imoveis:
+        imoveis_response[imovel["status"]] = imovel["total"]
+
     return Statistics(
-        imoveis_alugados=imoveis[0]["total"] if imoveis[0] else 0,
-        imoveis_disponiveis=imoveis[1]["total"] if imoveis[1] else 0,
+        imoveis_alugados=imoveis_response["Alugado"],
+        imoveis_disponiveis=imoveis_response["Disponivel"],
         pagamentos_pendentes=pagamentos[0]["total"] if pagamentos else 0
     )
    
