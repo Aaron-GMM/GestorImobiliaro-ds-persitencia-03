@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from app.api.common import validar_object_id, extrair_link_id
 from app.models.imovel import Imovel, ImovelCreate, ImovelUpdate, ImovelResponse
+from app.models.pagination import PaginatedResponse
 from app.models.proprietario import Proprietario
 
 router = APIRouter(prefix="/imoveis", tags=["Imóveis"])
@@ -85,11 +86,31 @@ async def buscar_imoveis(
     return [_imovel_to_response(imovel) for imovel in imoveis]
 
 
-@router.get("/proprietario/{id_proprietario}", response_model=list[ImovelResponse])
-async def listar_imoveis_por_proprietario(id_proprietario: str):
+@router.get("/proprietario/{id_proprietario}", response_model=PaginatedResponse[ImovelResponse])
+async def listar_imoveis_por_proprietario(
+    id_proprietario: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(10, ge=1, le=100)
+):
     owner_id = validar_object_id(id_proprietario, "ID de proprietário")
-    imoveis = await Imovel.find({"proprietario.$id": owner_id}).to_list()
-    return [_imovel_to_response(imovel) for imovel in imoveis]
+    filtros = {"proprietario.$id": owner_id}
+    total = await Imovel.find(filtros).count()
+    imoveis = await Imovel.find(filtros).skip(skip).limit(limit).to_list()
+    content = [_imovel_to_response(imovel) for imovel in imoveis]
+    pages = (total + limit - 1) // limit if total > 0 else 0
+    current_page = (skip // limit) + 1 if total > 0 else 1
+    previous = current_page - 1 if current_page > 1 else None
+    next_page = current_page + 1 if current_page < pages else None
+
+    return PaginatedResponse(
+        previous=previous,
+        next=next_page,
+        last=pages,
+        start=skip,
+        content=content,
+        total=total,
+        pages=pages
+    )
 
 
 @router.get("/{id}", response_model=ImovelResponse)
