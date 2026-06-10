@@ -57,11 +57,11 @@ async def listar_pagamentos(
         total = await Pagamento.find_all().count()
     
     # Buscar pagamentos com paginação
-    direction = str(1 if order_direction.lower() == "asc" else -1)
+    direction = 1 if order_direction.lower() == "asc" else -1
     if filtros:
-        pagamentos = await Pagamento.find(filtros).skip(skip).limit(limit).sort(order_by, direction).to_list()
+        pagamentos = await Pagamento.find(filtros, sort=(order_by, direction)).skip(skip).limit(limit).to_list()
     else:
-        pagamentos = await Pagamento.find_all().skip(skip).limit(limit).sort(order_by, direction).to_list()
+        pagamentos = await Pagamento.find(sort=(order_by, direction)).skip(skip).limit(limit).to_list()
     
     # Construir resposta com dados relacionados
     content = []
@@ -87,6 +87,7 @@ async def listar_pagamentos(
             status=pagamento.status,
             proprietario=proprietario,
             data_pagamento=pagamento.data_pagamento,
+            criado_em=pagamento.criado_em,
         ))
     
     # Calcular metadados de paginação
