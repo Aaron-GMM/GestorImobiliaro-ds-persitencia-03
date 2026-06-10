@@ -86,19 +86,26 @@ async def buscar_imoveis(
     return [_imovel_to_response(imovel) for imovel in imoveis]
 
 
-@router.get("/proprietario/{id_proprietario}", response_model=PaginatedResponse[ImovelResponse])
+@router.get("/proprietario/{id_proprietario}", response_model=PaginatedResponse[ImovelResponse] | list[ImovelResponse])
 async def listar_imoveis_por_proprietario(
     id_proprietario: str,
-    skip: int = Query(0, ge=0),
-    limit: int = Query(10, ge=1, le=100)
+    skip: int | None = Query(None, ge=0),
+    limit: int | None = Query(None, ge=1, le=100)
 ):
     owner_id = validar_object_id(id_proprietario, "ID de proprietário")
     filtros = {"proprietario.$id": owner_id}
+
+    if skip is None and limit is None:
+        imoveis = await Imovel.find(filtros).to_list()
+        return [_imovel_to_response(imovel) for imovel in imoveis]
+
+    skip_value = skip if skip is not None else 0
+    limit_value = limit if limit is not None else 10
     total = await Imovel.find(filtros).count()
-    imoveis = await Imovel.find(filtros).skip(skip).limit(limit).to_list()
+    imoveis = await Imovel.find(filtros).skip(skip_value).limit(limit_value).to_list()
     content = [_imovel_to_response(imovel) for imovel in imoveis]
-    pages = (total + limit - 1) // limit if total > 0 else 0
-    current_page = (skip // limit) + 1 if total > 0 else 1
+    pages = (total + limit_value - 1) // limit_value if total > 0 else 0
+    current_page = (skip_value // limit_value) + 1 if total > 0 else 1
     previous = current_page - 1 if current_page > 1 else None
     next_page = current_page + 1 if current_page < pages else None
 
@@ -106,7 +113,7 @@ async def listar_imoveis_por_proprietario(
         previous=previous,
         next=next_page,
         last=pages,
-        start=skip,
+        start=skip_value,
         content=content,
         total=total,
         pages=pages
