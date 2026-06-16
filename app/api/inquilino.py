@@ -1,136 +1,137 @@
-"""
-Rotas da API para gerenciamento de Inquilinos.
-"""
-from beanie import PydanticObjectId
 from fastapi import APIRouter, HTTPException, Query
-from app.models.inquilino import Inquilino, InquilinoCreate, InquilinoUpdate
+from app.api.common import validar_object_id, extrair_link_id
+from app.models.inquilino import Inquilino, InquilinoCreate, InquilinoUpdate, InquilinoResponse
+from app.models.pagination import PaginatedResponse
+from app.models.proprietario import Proprietario
 
 router = APIRouter(prefix="/inquilinos", tags=["Inquilinos"])
 
 
-@router.post("/", response_model=Inquilino)
+def _inquilino_to_response(inquilino: Inquilino) -> InquilinoResponse:
+    proprietario_id = extrair_link_id(inquilino.proprietario)
+    return InquilinoResponse(
+        id=str(inquilino.id),
+        nome=inquilino.nome,
+        cpf=inquilino.cpf,
+        email=inquilino.email,
+        telefone=inquilino.telefone,
+        renda_mensal=inquilino.renda_mensal,
+        id_proprietario=proprietario_id
+    )
+
+
+async def _buscar_inquilino_ou_404(id_inquilino: str) -> Inquilino:
+    _ = validar_object_id(id_inquilino, "ID")
+    inquilino = await Inquilino.get(id_inquilino)
+    if not inquilino:
+        raise HTTPException(status_code=404, detail="Inquilino não encontrado")
+    return inquilino
+
+
+def _garantir_proprietario_do_inquilino(inquilino: Inquilino, id_proprietario: str | None):
+    if not id_proprietario:
+        return
+    owner_id = validar_object_id(id_proprietario, "ID de proprietário")
+    inquilino_owner = extrair_link_id(inquilino.proprietario)
+    if inquilino_owner != str(owner_id):
+        raise HTTPException(status_code=403, detail="Inquilino não pertence ao proprietário informado")
+
+
+@router.post("/", response_model=InquilinoResponse)
 async def criar_inquilino(dados: InquilinoCreate):
-    """
-    Cria um novo inquilino no sistema.
-    
-    Args:
-        dados: Dados do inquilino a ser criado.
-    
-    Returns:
-        Inquilino criado com ID gerado.
-    """
-    novo_inquilino = Inquilino(**dados.model_dump())
-    return await novo_inquilino.insert()
+    owner_id = validar_object_id(dados.id_proprietario, "ID de proprietário")
+    prop = await Proprietario.get(owner_id)
+    if not prop:
+        raise HTTPException(status_code=404, detail="Proprietário não encontrado")
+
+    novo_inquilino = Inquilino(**dados.model_dump(exclude={"id_proprietario"}), proprietario=prop)
+    inquilino = await novo_inquilino.insert()
+    return _inquilino_to_response(inquilino)
 
 
-@router.get("/", response_model=list[Inquilino])
+@router.get("/", response_model=list[InquilinoResponse])
 async def listar_inquilinos(skip: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=100)):
-    """
-    Lista todos os inquilinos com paginação.
-    
-    Args:
-        skip: Número de registros a pular.
-        limit: Número máximo de registros a retornar.
-    
-    Returns:
-        Lista de inquilinos.
-    """
-    return await Inquilino.find_all().skip(skip).limit(limit).to_list()
+    inquilinos = await Inquilino.find_all().skip(skip).limit(limit).to_list()
+    return [_inquilino_to_response(inquilino) for inquilino in inquilinos]
 
 
-@router.get("/buscar", response_model=list[Inquilino])
+@router.get("/buscar", response_model=list[InquilinoResponse])
 async def buscar_inquilinos(
-    nome: str | None = Query(None, description="Busca parcial por nome"),
-    cpf: str | None = Query(None, description="Busca por CPF")
+    nome: str | None = Query(None),
+    cpf: str | None = Query(None),
+    id_proprietario: str | None = Query(None)
 ):
-    """
-    Busca inquilinos por nome (parcial, case-insensitive) ou CPF.
-    
-    Args:
-        nome: Nome para busca parcial.
-        cpf: CPF para busca exata.
-    
-    Returns:
-        Lista de inquilinos encontrados.
-    """
+    filtros = {}
+
     if nome:
-        return await Inquilino.find(
-            {"nome": {"$regex": nome, "$options": "i"}}
-        ).to_list()
+        filtros["nome"] = {"$regex": nome, "$options": "i"}
     if cpf:
-        return await Inquilino.find({"cpf": cpf}).to_list()
-    return []
+        filtros["cpf"] = cpf
+    if id_proprietario:
+        owner_id = validar_object_id(id_proprietario, "ID de proprietário")
+        filtros["proprietario.$id"] = owner_id
+
+    if not filtros:
+        return []
+
+    inquilinos = await Inquilino.find(filtros).to_list()
+    return [_inquilino_to_response(inquilino) for inquilino in inquilinos]
 
 
-@router.get("/{id}", response_model=Inquilino)
-async def obter_inquilino(id: str):
-    """
-    Obtém um inquilino pelo ID.
-    
-    Args:
-        id: ID do inquilino.
-    
-    Returns:
-        Inquilino encontrado.
-    
-    Raises:
-        HTTPException: Se o ID for inválido ou inquilino não encontrado.
-    """
-    if not PydanticObjectId.is_valid(id):
-        raise HTTPException(status_code=400, detail="ID inválido")
-    
-    inquilino = await Inquilino.get(id)
-    if not inquilino:
-        raise HTTPException(status_code=404, detail="Inquilino não encontrado")
-    return inquilino
+@router.get("/proprietario/{id_proprietario}", response_model=PaginatedResponse[InquilinoResponse] | list[InquilinoResponse])
+async def listar_inquilinos_por_proprietario(
+    id_proprietario: str,
+    skip: int | None = Query(None, ge=0),
+    limit: int | None = Query(None, ge=1, le=100)
+):
+    owner_id = validar_object_id(id_proprietario, "ID de proprietário")
+    filtros = {"proprietario.$id": owner_id}
+
+    if skip is None and limit is None:
+        inquilinos = await Inquilino.find(filtros).to_list()
+        return [_inquilino_to_response(inquilino) for inquilino in inquilinos]
+
+    skip_value = skip if skip is not None else 0
+    limit_value = limit if limit is not None else 10
+    total = await Inquilino.find(filtros).count()
+    inquilinos = await Inquilino.find(filtros).skip(skip_value).limit(limit_value).to_list()
+    content = [_inquilino_to_response(inquilino) for inquilino in inquilinos]
+    pages = (total + limit_value - 1) // limit_value if total > 0 else 0
+    current_page = (skip_value // limit_value) + 1 if total > 0 else 1
+    previous = current_page - 1 if current_page > 1 else None
+    next_page = current_page + 1 if current_page < pages else None
+
+    return PaginatedResponse(
+        previous=previous,
+        next=next_page,
+        last=pages,
+        start=skip_value,
+        content=content,
+        total=total,
+        pages=pages
+    )
 
 
-@router.put("/{id}", response_model=Inquilino)
-async def atualizar_inquilino(id: str, dados: InquilinoUpdate):
-    """
-    Atualiza um inquilino existente.
-    
-    Args:
-        id: ID do inquilino.
-        dados: Dados a serem atualizados.
-    
-    Returns:
-        Inquilino atualizado.
-    
-    Raises:
-        HTTPException: Se o ID for inválido ou inquilino não encontrado.
-    """
-    if not PydanticObjectId.is_valid(id):
-        raise HTTPException(status_code=400, detail="ID inválido")
-    
-    inquilino = await Inquilino.get(id)
-    if not inquilino:
-        raise HTTPException(status_code=404, detail="Inquilino não encontrado")
-    
+@router.get("/{id}", response_model=InquilinoResponse)
+async def obter_inquilino(id: str, id_proprietario: str | None = Query(None)):
+    inquilino = await _buscar_inquilino_ou_404(id)
+    _garantir_proprietario_do_inquilino(inquilino, id_proprietario)
+    return _inquilino_to_response(inquilino)
+
+
+@router.put("/{id}", response_model=InquilinoResponse)
+async def atualizar_inquilino(id: str, dados: InquilinoUpdate, id_proprietario: str | None = Query(None)):
+    inquilino = await _buscar_inquilino_ou_404(id)
+    _garantir_proprietario_do_inquilino(inquilino, id_proprietario)
+
     await inquilino.set(dados.model_dump(exclude_unset=True))
-    return inquilino
+    return _inquilino_to_response(inquilino)
 
 
 @router.delete("/{id}")
-async def deletar_inquilino(id: str):
-    """
-    Remove um inquilino do sistema.
-    
-    Args:
-        id: ID do inquilino.
-    
-    Returns:
-        Mensagem de confirmação.
-    
-    Raises:
-        HTTPException: Se o ID for inválido ou inquilino não encontrado.
-    """
-    if not PydanticObjectId.is_valid(id):
-        raise HTTPException(status_code=400, detail="ID inválido")
-    
-    inquilino = await Inquilino.get(id)
-    if not inquilino:
-        raise HTTPException(status_code=404, detail="Inquilino não encontrado")
-    
+async def deletar_inquilino(id: str, id_proprietario: str | None = Query(None)):
+    inquilino = await _buscar_inquilino_ou_404(id)
+    _garantir_proprietario_do_inquilino(inquilino, id_proprietario)
+
     await inquilino.delete()
     return {"message": "Inquilino deletado com sucesso"}

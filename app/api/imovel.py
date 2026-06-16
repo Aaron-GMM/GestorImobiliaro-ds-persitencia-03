@@ -1,68 +1,72 @@
-from beanie import PydanticObjectId
 from fastapi import APIRouter, HTTPException, Query
-from app.models.imovel import Imovel, ImovelCreate, ImovelUpdate
+from app.api.common import validar_object_id, extrair_link_id
+from app.models.imovel import Imovel, ImovelCreate, ImovelUpdate, ImovelResponse
+from app.models.pagination import PaginatedResponse
 from app.models.proprietario import Proprietario
 
 router = APIRouter(prefix="/imoveis", tags=["Imóveis"])
 
 
-@router.post("/", response_model=Imovel)
-async def criar_imovel(dados: ImovelCreate):
-    """
-    Cria um novo imóvel no sistema.
-    
-    Args:
-        dados: Dados do imóvel a ser criado, incluindo ID do proprietário.
-    
-    Returns:
-        Imóvel criado com ID gerado.
-    
-    Raises:
-        HTTPException: Se o ID do proprietário for inválido ou não encontrado.
-    """
-    if not PydanticObjectId.is_valid(dados.id_proprietario):
-        raise HTTPException(status_code=400, detail="ID de proprietário inválido")
 
-    prop = await Proprietario.get(dados.id_proprietario)
+def _imovel_to_response(imovel: Imovel) -> ImovelResponse:
+    proprietario_id = extrair_link_id(imovel.proprietario)
+    return ImovelResponse(
+        id=str(imovel.id),
+        apelido_imovel=imovel.apelido_imovel,
+        descricao=imovel.descricao,
+        endereco=imovel.endereco,
+        valor_aluguel_base=imovel.valor_aluguel_base,
+        tipo_imovel=imovel.tipo_imovel,
+        status=imovel.status,
+        id_proprietario=proprietario_id
+    )
+
+
+async def _buscar_imovel_ou_404(id_imovel: str) -> Imovel:
+    _ = validar_object_id(id_imovel, "ID")
+    imovel = await Imovel.get(id_imovel)
+    if not imovel:
+        raise HTTPException(status_code=404, detail="Imóvel não encontrado")
+    return imovel
+
+
+def _garantir_proprietario_do_imovel(imovel: Imovel, id_proprietario: str | None):
+    if not id_proprietario:
+        return
+    owner_id = validar_object_id(id_proprietario, "ID de proprietário")
+    imovel_owner = extrair_link_id(imovel.proprietario)
+    if imovel_owner != str(owner_id):
+        raise HTTPException(status_code=403, detail="Imóvel não pertence ao proprietário informado")
+
+
+@router.post("/", response_model=ImovelResponse)
+async def criar_imovel(dados: ImovelCreate):
+    owner_id = validar_object_id(dados.id_proprietario, "ID de proprietário")
+    prop = await Proprietario.get(owner_id)
     if not prop:
         raise HTTPException(status_code=404, detail="Proprietário não encontrado")
 
-    novo_imovel = Imovel(
-        **dados.model_dump(exclude={"id_proprietario"}),
-        proprietario=prop
-    )
-
-    return await novo_imovel.insert()
+    novo_imovel = Imovel(**dados.model_dump(exclude={"id_proprietario"}), proprietario=prop)
+    imovel = await novo_imovel.insert()
+    return _imovel_to_response(imovel)
 
 
-@router.get("/", response_model=list[Imovel])
-async def listar_imoveis(skip: int = Query(0), limit: int = Query(10)):
-    """Lista todos os imóveis com paginação."""
-    return await Imovel.find_all().skip(skip).limit(limit).to_list()
+@router.get("/", response_model=list[ImovelResponse])
+async def listar_imoveis(skip: int = Query(0, ge=0), limit: int = Query(10, ge=1, le=100)):
+    imoveis = await Imovel.find_all().skip(skip).limit(limit).to_list()
+    return [_imovel_to_response(imovel) for imovel in imoveis]
 
 
-@router.get("/buscar", response_model=list[Imovel])
+@router.get("/buscar", response_model=list[ImovelResponse])
 async def buscar_imoveis(
-    apelido: str | None = Query(None, description="Busca parcial por apelido (case-insensitive)"),
-    descricao: str | None = Query(None, description="Busca parcial na descrição (case-insensitive)"),
-    tipo: str | None = Query(None, description="Filtrar por tipo de imóvel"),
-    status: str | None = Query(None, description="Filtrar por status (Disponivel, Alugado)")
+    apelido: str | None = Query(None),
+    descricao: str | None = Query(None),
+    tipo: str | None = Query(None),
+    status: str | None = Query(None),
+    id_proprietario: str | None = Query(None)
 ):
-    """
-    Busca imóveis por apelido, descrição, tipo ou status.
-    Implementa busca por texto parcial e case-insensitive.
-    
-    Args:
-        apelido: Texto para busca parcial no apelido.
-        descricao: Texto para busca parcial na descrição.
-        tipo: Tipo de imóvel (Casa, Apartamento, etc).
-        status: Status do imóvel (Disponivel, Alugado).
-    
-    Returns:
-        Lista de imóveis que correspondem aos critérios.
-    """
     filtros = {}
-    
+
     if apelido:
         filtros["apelido_imovel"] = {"$regex": apelido, "$options": "i"}
     if descricao:
@@ -71,104 +75,70 @@ async def buscar_imoveis(
         filtros["tipo_imovel"] = tipo
     if status:
         filtros["status"] = status
-    
+    if id_proprietario:
+        owner_id = validar_object_id(id_proprietario, "ID de proprietário")
+        filtros["proprietario.$id"] = owner_id
+
     if not filtros:
         return []
-    
-    return await Imovel.find(filtros).to_list()
+
+    imoveis = await Imovel.find(filtros).to_list()
+    return [_imovel_to_response(imovel) for imovel in imoveis]
 
 
-@router.get("/proprietario/{id_proprietario}", response_model=list[Imovel])
-async def listar_imoveis_por_proprietario(id_proprietario: str):
-    """
-    Lista todos os imóveis de um proprietário específico.
-    
-    Args:
-        id_proprietario: ID do proprietário.
-    
-    Returns:
-        Lista de imóveis do proprietário.
-    
-    Raises:
-        HTTPException: Se o ID for inválido.
-    """
-    if not PydanticObjectId.is_valid(id_proprietario):
-        raise HTTPException(status_code=400, detail="ID de proprietário inválido")
-    
-    return await Imovel.find(
-        {"proprietario.$id": PydanticObjectId(id_proprietario)}
-    ).to_list()
+@router.get("/proprietario/{id_proprietario}", response_model=PaginatedResponse[ImovelResponse] | list[ImovelResponse])
+async def listar_imoveis_por_proprietario(
+    id_proprietario: str,
+    skip: int | None = Query(None, ge=0),
+    limit: int | None = Query(None, ge=1, le=100)
+):
+    owner_id = validar_object_id(id_proprietario, "ID de proprietário")
+    filtros = {"proprietario.$id": owner_id}
+
+    if skip is None and limit is None:
+        imoveis = await Imovel.find(filtros).to_list()
+        return [_imovel_to_response(imovel) for imovel in imoveis]
+
+    skip_value = skip if skip is not None else 0
+    limit_value = limit if limit is not None else 10
+    total = await Imovel.find(filtros).count()
+    imoveis = await Imovel.find(filtros).skip(skip_value).limit(limit_value).to_list()
+    content = [_imovel_to_response(imovel) for imovel in imoveis]
+    pages = (total + limit_value - 1) // limit_value if total > 0 else 0
+    current_page = (skip_value // limit_value) + 1 if total > 0 else 1
+    previous = current_page - 1 if current_page > 1 else None
+    next_page = current_page + 1 if current_page < pages else None
+
+    return PaginatedResponse(
+        previous=previous,
+        next=next_page,
+        last=pages,
+        start=skip_value,
+        content=content,
+        total=total,
+        pages=pages
+    )
 
 
-@router.get("/{id}", response_model=Imovel)
-async def obter_imovel(id: str):
-    """
-    Obtém um imóvel pelo ID.
-    
-    Args:
-        id: ID do imóvel.
-    
-    Returns:
-        Imóvel encontrado.
-    
-    Raises:
-        HTTPException: Se o ID for inválido ou imóvel não encontrado.
-    """
-    if not PydanticObjectId.is_valid(id):
-        raise HTTPException(status_code=400, detail="ID inválido")
-
-    imovel = await Imovel.get(id)
-    if not imovel:
-        raise HTTPException(status_code=404, detail="Imóvel não encontrado")
-    return imovel
+@router.get("/{id}", response_model=ImovelResponse)
+async def obter_imovel(id: str, id_proprietario: str | None = Query(None)):
+    imovel = await _buscar_imovel_ou_404(id)
+    _garantir_proprietario_do_imovel(imovel, id_proprietario)
+    return _imovel_to_response(imovel)
 
 
-@router.put("/{id}", response_model=Imovel)
-async def atualizar_imovel(id: str, dados: ImovelUpdate):
-    """
-    Atualiza um imóvel existente.
-    
-    Args:
-        id: ID do imóvel.
-        dados: Dados a serem atualizados.
-    
-    Returns:
-        Imóvel atualizado.
-    
-    Raises:
-        HTTPException: Se o ID for inválido ou imóvel não encontrado.
-    """
-    if not PydanticObjectId.is_valid(id):
-        raise HTTPException(status_code=400, detail="ID inválido")
-
-    imovel = await Imovel.get(id)
-    if not imovel:
-        raise HTTPException(status_code=404, detail="Imóvel não encontrado")
+@router.put("/{id}", response_model=ImovelResponse)
+async def atualizar_imovel(id: str, dados: ImovelUpdate, id_proprietario: str | None = Query(None)):
+    imovel = await _buscar_imovel_ou_404(id)
+    _garantir_proprietario_do_imovel(imovel, id_proprietario)
 
     await imovel.set(dados.model_dump(exclude_unset=True))
-    return imovel
+    return _imovel_to_response(imovel)
 
 
 @router.delete("/{id}")
-async def deletar_imovel(id: str):
-    """
-    Remove um imóvel do sistema.
-    
-    Args:
-        id: ID do imóvel.
-    
-    Returns:
-        Mensagem de confirmação.
-    
-    Raises:
-        HTTPException: Se o ID for inválido ou imóvel não encontrado.
-    """
-    if not PydanticObjectId.is_valid(id):
-        raise HTTPException(status_code=400, detail="ID inválido")
-
-    imovel = await Imovel.get(id)
-    if not imovel:
-        raise HTTPException(status_code=404, detail="Imóvel não encontrado")
-
+async def deletar_imovel(id: str, id_proprietario: str | None = Query(None)):
+    imovel = await _buscar_imovel_ou_404(id)
+    _garantir_proprietario_do_imovel(imovel, id_proprietario)
     await imovel.delete()
     return {"message": "Imóvel deletado com sucesso"}

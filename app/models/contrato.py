@@ -3,7 +3,14 @@ from beanie import Document, Link
 from pydantic import BaseModel, Field
 from .inquilino import Inquilino
 from .imovel import Imovel
+from .proprietario import Proprietario
 
+
+class ContratoMetrics(BaseModel):
+    """Métricas de contratos."""
+    contratos_ativos: int
+    contratos_vencendo: int
+    imoveis_disponiveis: int
 
 class ContratoCreate(BaseModel):
     """Schema para criação de contrato."""
@@ -12,6 +19,8 @@ class ContratoCreate(BaseModel):
     data_inicio: date
     data_fim: date
     valor_aluguel: float = Field(gt=0)
+    dia_vencimento: int = Field(ge=1, le=31)
+    id_proprietario: str = Field(description="ID do proprietário")
 
 
 class ContratoUpdate(BaseModel):
@@ -20,6 +29,21 @@ class ContratoUpdate(BaseModel):
     data_fim: date | None = None
     valor_aluguel: float | None = None
     status: str | None = None
+    dia_vencimento: int | None = None
+    id_proprietario: str | None = None
+
+
+class ContratoResponse(BaseModel):
+    """Schema para resposta de contrato com dados relacionados."""
+    id: str
+    inquilino: Inquilino
+    imovel: Imovel
+    data_inicio: date
+    data_fim: date
+    valor_aluguel: float
+    dia_vencimento: int
+    status: str
+    proprietario: Proprietario | None = None
 
 
 class Contrato(Document):
@@ -32,7 +56,9 @@ class Contrato(Document):
     data_inicio: date
     data_fim: date
     valor_aluguel: float = Field(gt=0)
+    dia_vencimento: int = Field(ge=1, le=31)
     status: str = "Ativo"  # Ativo, Encerrado, Cancelado
+    proprietario: Link[Proprietario]
 
     class Settings:
         name = "contratos"
